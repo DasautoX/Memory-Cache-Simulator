@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cache Memory Simulator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Cache Memory Simulator</h1>
+            <p>Simulate direct-mapped, fully associative, and set-associative caches</p>
+        </header>
+
+        <main>
+            <!-- Mode Selection -->
+            <section id="mode-section" class="card">
+                <h2>Simulation Mode</h2>
+                <div class="mode-selector">
+                    <button class="btn mode-btn active" data-mode="manual">Manual Mode</button>
+                    <button class="btn mode-btn" data-mode="guided">Guided Examples</button>
+                </div>
+            </section>
+
+            <!-- Sample Simulations (Initially Hidden) -->
+            <section id="samples-section" class="card" style="display: none;">
+                <h2>Sample Simulations</h2>
+                <div class="samples-grid">
+                    <div class="sample-card" data-simulation="directMapped">
+                        <h3>Direct-Mapped Cache</h3>
+                        <p>Demonstrates conflict misses in direct mapping</p>
+                        <div class="sample-config">
+                            <small>Cache: 16B, Block: 4B</small>
+                        </div>
+                    </div>
+                    <div class="sample-card" data-simulation="fullyAssociative">
+                        <h3>Fully Associative Cache</h3>
+                        <p>Shows LRU replacement in action</p>
+                        <div class="sample-config">
+                            <small>Cache: 16B, Block: 4B</small>
+                        </div>
+                    </div>
+                    <div class="sample-card" data-simulation="setAssociative">
+                        <h3>Set-Associative Cache</h3>
+                        <p>Explores set-associative behavior</p>
+                        <div class="sample-config">
+                            <small>Cache: 32B, Block: 8B, 2-way</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Simulation Controls -->
+                <div id="simulation-controls" style="display: none;">
+                    <div class="simulation-info">
+                        <h3>Current Step: <span id="step-number">0</span></h3>
+                        <p id="step-description"></p>
+                    </div>
+                    <div class="button-group">
+                        <button id="prev-step" class="btn secondary">Previous</button>
+                        <button id="next-step" class="btn primary">Next</button>
+                        <button id="reset-simulation" class="btn secondary">Reset</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Manual Mode Sections -->
+            <div id="manual-mode-sections">
+                <!-- Cache Configuration Form -->
+                <section id="config-section" class="card">
+                    <h2>Cache Configuration</h2>
+                    <form id="config-form">
+                        <div class="form-group">
+                            <label for="cache-size">Cache Size:</label>
+                            <input type="text" id="cache-size" name="size" value="1KB" required>
+                            <div class="size-helper">
+                                <span>Common sizes: 16B, 32B, 64B, 128B, 256B, 512B, 1KB</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="block-size">Block Size:</label>
+                            <input type="text" id="block-size" name="blockSize" value="64B" required>
+                            <div class="size-helper">
+                                <span>Common sizes: 4B, 8B, 16B, 32B, 64B</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="associativity">Associativity:</label>
+                            <select id="associativity" name="associativity" required>
+                                <option value="1">Direct Mapped</option>
+                                <option value="2">2-Way Set Associative</option>
+                                <option value="4">4-Way Set Associative</option>
+                                <option value="8">8-Way Set Associative</option>
+                                <option value="fully">Fully Associative</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="policy">Replacement Policy:</label>
+                            <select id="policy" name="policy" required>
+                                <option value="LRU">LRU (Least Recently Used)</option>
+                                <option value="FIFO">FIFO (First In First Out)</option>
+                            </select>
+                        </div>
+
+                        <div class="button-group">
+                            <button type="submit" class="btn primary">Configure Cache</button>
+                            <button type="button" id="reset-btn" class="btn secondary">Reset</button>
+                        </div>
+                    </form>
+                </section>
+
+                <!-- Memory Access Section -->
+                <section id="access-section" class="card" style="display: none;">
+                    <h2>Memory Access</h2>
+                    <div class="form-group">
+                        <label for="address">Memory Address:</label>
+                        <div class="address-input-group">
+                            <input type="number" id="address" min="0" step="1" required>
+                            <div class="address-breakdown" id="address-breakdown">
+                                <!-- Address bits breakdown will be shown here -->
+                            </div>
+                        </div>
+                        <div class="button-group">
+                            <button id="read-btn" class="btn primary">Read</button>
+                            <button id="write-btn" class="btn secondary">Write</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="trace">Address Trace (comma-separated):</label>
+                        <textarea id="trace" rows="3" placeholder="0, 4, 8, 12, 0, 4"></textarea>
+                        <div class="trace-controls">
+                            <button id="run-trace-btn" class="btn primary">Run Trace</button>
+                            <label for="trace-speed">Animation Speed:</label>
+                            <input type="range" id="trace-speed" min="100" max="2000" value="500">
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Cache Visualization -->
+            <section id="visualization-section" class="card" style="display: none;">
+                <h2>Cache State</h2>
+                <div class="visualization-controls">
+                    <div class="control-group">
+                        <label for="show-bits">Show Address Bits:</label>
+                        <input type="checkbox" id="show-bits" checked>
+                    </div>
+                    <div class="control-group">
+                        <label for="enable-animations">Enable Animations:</label>
+                        <input type="checkbox" id="enable-animations" checked>
+                    </div>
+                </div>
+                
+                <!-- Memory Hierarchy Visualization -->
+                <div class="memory-hierarchy">
+                    <div class="memory-component main-memory">
+                        <h3>Main Memory</h3>
+                        <div class="memory-blocks"></div>
+                    </div>
+                    <div class="data-path"></div>
+                    <div class="memory-component cache-memory">
+                        <h3>Cache Memory</h3>
+                        <div class="cache-container">
+                            <div id="cache-vis"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step-by-Step Explanation Panel -->
+                <div class="explanation-panel">
+                    <h3>Operation Breakdown</h3>
+                    <div class="step-container">
+                        <div class="step-progress">
+                            <div class="progress-bar"></div>
+                        </div>
+                        <div class="step-content">
+                            <div class="step-list"></div>
+                        </div>
+                    </div>
+                    <div class="operation-details">
+                        <div class="detail-item">
+                            <span class="detail-label">Current Operation:</span>
+                            <span class="detail-value" id="current-operation">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Address:</span>
+                            <span class="detail-value" id="current-address">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Status:</span>
+                            <span class="detail-value" id="operation-status">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="address-bits-display">
+                    <!-- Address bits breakdown visualization -->
+                </div>
+                
+                <div class="stats-container">
+                    <h3>Statistics</h3>
+                    <div id="stats-display">
+                        <div class="stat-item">
+                            <span class="stat-label">Accesses:</span>
+                            <span id="total-accesses">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Hits:</span>
+                            <span id="hits">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Misses:</span>
+                            <span id="misses">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Hit Rate:</span>
+                            <span id="hit-rate">0%</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Evictions:</span>
+                            <span id="evictions">0</span>
+                        </div>
+                    </div>
+                    <div id="stats-chart">
+                        <!-- Performance chart will be added here -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Access Log -->
+            <section id="log-section" class="card" style="display: none;">
+                <h2>Access Log</h2>
+                <div class="log-controls">
+                    <button id="clear-log" class="btn secondary">Clear Log</button>
+                    <button id="export-log" class="btn secondary">Export Log</button>
+                </div>
+                <div id="access-log"></div>
+            </section>
+
+            <!-- Cache Visualization -->
+            <div class="cache-visualization">
+                <div class="visualization-header">
+                    <h3>Cache Structure Visualization</h3>
+                    <div class="visualization-controls">
+                        <button class="btn" id="zoom-in">
+                            <i class="fas fa-search-plus"></i>
+                        </button>
+                        <button class="btn" id="zoom-out">
+                            <i class="fas fa-search-minus"></i>
+                        </button>
+                        <button class="btn" id="reset-view">
+                            <i class="fas fa-sync"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="visualization-container">
+                    <!-- Main SVG Container -->
+                    <svg id="cache-diagram" class="cache-diagram">
+                        <!-- Will be populated by JavaScript -->
+                    </svg>
+                    
+                    <!-- Tooltip for detailed information -->
+                    <div id="cache-tooltip" class="cache-tooltip">
+                        <div class="tooltip-header"></div>
+                        <div class="tooltip-content"></div>
+                    </div>
+                </div>
+
+                <!-- Cache Statistics Dashboard -->
+                <div class="cache-dashboard">
+                    <div class="dashboard-header">
+                        <h3>Cache Performance Metrics</h3>
+                        <div class="time-range-selector">
+                            <button class="btn active" data-range="realtime">Real-time</button>
+                            <button class="btn" data-range="cumulative">Cumulative</button>
+                        </div>
+                    </div>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-icon">
+                                <i class="fas fa-bolt"></i>
+                            </div>
+                            <div class="metric-details">
+                                <div class="metric-value" id="hit-rate">0%</div>
+                                <div class="metric-label">Hit Rate</div>
+                            </div>
+                            <div class="metric-trend">
+                                <canvas class="trend-chart"></canvas>
+                            </div>
+                        </div>
+                        <!-- Add more metric cards -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html> 

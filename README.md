@@ -2,7 +2,7 @@
 
 An interactive web-based cache memory simulator developed for educational purposes at Texas A&M University at Qatar. It allows users to configure and visualize the behavior of direct-mapped, set-associative, and fully associative caches using LRU or FIFO replacement policies.
 
-![TAMUQ Logo](static/img/tamuq-logo.png) <!-- Assuming logo is placed here -->
+
 
 ## Features
 

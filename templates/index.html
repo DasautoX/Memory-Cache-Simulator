@@ -4,13 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cache Simulator</title>
+    <link rel="icon" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/svgs/solid/microchip.svg">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Cache Memory Simulator</h1>
-            <p>Visualize Direct-Mapped, Set-Associative, and Fully Associative Caches</p>
+            <div class="header-content">
+                <img src="{{ url_for('static', filename='img/tamuq-logo.png') }}" alt="TAMUQ Logo" class="header-logo">
+                <div class="header-text">
+                    <h1>Cache Memory Simulator</h1>
+                    <p>Visualize Direct-Mapped, Set-Associative, and Fully Associative Caches</p>
+                </div>
+            </div>
         </header>
 
         <main class="simulator-layout">
@@ -101,9 +108,16 @@
         </main>
     </div>
 
+    <footer>
+        <p>Cache Simulator | Developed by: Ejmen Al-Ubejdij & Umair Gavankar</p>
+    </footer>
+
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 
     <!-- Loading Indicator -->
     <div id="loading-indicator" class="loading-indicator">Loading...</div>
+
+    <!-- Tooltip -->
+    <div id="tooltip" class="tooltip"></div>
 </body>
 </html> 

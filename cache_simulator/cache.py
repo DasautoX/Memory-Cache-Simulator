@@ -151,16 +151,16 @@ class Cache:
         tag, index, offset = get_address_parts(address, self.block_size, self.num_sets)
         
         # Access the appropriate set
-        hit, block, evicted = self.sets[index].access(tag)
+        hit, block, evicted_block = self.sets[index].access(tag)
         
         # Update block state and statistics
         if block:
             if is_write:
                 block.dirty = True
         
-        self.stats.record_access(hit, eviction=evicted is not None)
+        self.stats.record_access(hit, eviction=evicted_block is not None)
         
-        return hit, evicted
+        return hit, evicted_block
     
     def get_contents(self) -> Dict:
         """Get the current contents of the cache.

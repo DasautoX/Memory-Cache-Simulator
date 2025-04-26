@@ -7,8 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let isTraceRunning = false;
     let currentConfig = null;
 
-    // DOM Elements
-    const configForm = document.getElementById('config-form');
+// DOM Elements
+const configForm = document.getElementById('config-form');
     const cacheSizeInput = document.getElementById('cache-size');
     const blockSizeInput = document.getElementById('block-size');
     const associativitySelect = document.getElementById('associativity');
@@ -16,9 +16,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const resetBtn = document.getElementById('reset-btn');
 
     const accessPanel = document.getElementById('access-panel');
-    const addressInput = document.getElementById('address');
+const addressInput = document.getElementById('address');
     const accessBtn = document.getElementById('access-btn');
-    const traceInput = document.getElementById('trace');
+const traceInput = document.getElementById('trace');
     const runTraceBtn = document.getElementById('run-trace-btn');
     const stepTraceBtn = document.getElementById('step-trace-btn');
     const resetTraceBtn = document.getElementById('reset-trace-btn');
@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const breakdownPanel = document.getElementById('breakdown-panel');
     const breakdownDisplayDiv = document.getElementById('address-breakdown-display');
     const loadingIndicator = document.getElementById('loading-indicator');
+    const tooltip = document.getElementById('tooltip');
 
     // --- Helper Functions ---
     function showError(message) {
@@ -97,7 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(data.error || `Request failed with status ${response.status}`);
             }
             return data;
-        } catch (error) {
+    } catch (error) {
             console.error(`API Error (${endpoint}):`, error);
             showError(error.message);
             return null; // Indicate failure
@@ -125,9 +126,9 @@ document.addEventListener('DOMContentLoaded', () => {
             accessPanel.style.display = 'block';
             visualPanel.style.display = 'block';
             statsPanel.style.display = 'block';
-            resetTraceState(); // Reset trace when reconfiguring
             breakdownPanel.style.display = 'none'; // Hide on reconfigure until address entered
             breakdownDisplayDiv.innerHTML = '<p>Enter an address to see breakdown.</p>';
+            resetTraceState(); // Reset trace when reconfiguring
         }
     }
 
@@ -141,8 +142,8 @@ document.addEventListener('DOMContentLoaded', () => {
             accessPanel.style.display = 'none';
             visualPanel.style.display = 'none';
             statsPanel.style.display = 'none';
-            resetTraceState();
             breakdownPanel.style.display = 'none';
+            resetTraceState();
         }
     }
 
@@ -160,8 +161,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const result = await apiCall('/api/access', 'POST', { address: addrInt });
         if (result && result.result) {
             const accessData = result.result;
-            showStatus(`Address ${addrInt}: ${accessData.hit ? 'HIT' : 'MISS'}${accessData.evicted ? ' (Eviction: Tag 0x' + accessData.evicted.tag.toString(16) + ')' : ''}`, accessData.hit);
-            updateVisualization(accessData.state, addrInt);
+            const statusMsg = `Address ${addrInt}: ${accessData.hit ? 'HIT' : 'MISS'}${accessData.evicted ? ' (Eviction: Tag 0x' + accessData.evicted.tag.toString(16) + ')' : ''}`;
+            showStatus(statusMsg, accessData.hit);
+            updateVisualization(accessData.state, null, null, accessData.hit);
             updateStats(await getCacheStats()); // Fetch latest stats
             updateAddressBreakdown(address.toString()); // Update breakdown on access
             return accessData; // Return hit/miss info
@@ -186,45 +188,16 @@ document.addEventListener('DOMContentLoaded', () => {
         showStatus(''); // Clear status
     }
 
-    function updateVisualization(state, accessedAddress = null) {
-        if (!state || !state.sets) {
+    function updateVisualization(state, highlightedSetIndex = null, highlightedWayIndex = null, isHit = null) {
+        // Explicitly assign to the top-level variable
+        currentCacheState = state;
+
+        if (!currentCacheState || !currentCacheState.sets) {
             cacheVisDiv.innerHTML = '<p>Cache not configured or state unavailable.</p>';
             return;
         }
         cacheVisDiv.innerHTML = ''; // Clear previous state
         
-        let blockToHighlight = null;
-        if (accessedAddress !== null && currentConfig) {
-            // Calculate which block corresponds to the accessed address
-             try {
-                const { blockSize, numSets } = currentConfig;
-                const offsetBits = Math.log2(blockSize);
-                const indexBits = numSets > 1 ? Math.log2(numSets) : 0;
-                const indexMask = numSets > 1 ? ((1 << indexBits) - 1) << offsetBits : 0;
-                const setIndex = numSets > 1 ? (accessedAddress & indexMask) >> offsetBits : 0;
-                
-                // Find the way - requires knowing the tag which isn't directly here
-                // We'll highlight the whole set for now, or the first block as a placeholder
-                // A more accurate highlight requires returning the accessed way index from backend
-                // Let's find the block by tag instead if possible
-                const tagMask = (~((1 << (offsetBits + indexBits)) - 1)) >>> 0;
-                const tag = (accessedAddress & tagMask) >>> (offsetBits + indexBits);
-
-                const targetSet = state.sets[setIndex];
-                if(targetSet) {
-                    const wayIndex = targetSet.blocks.findIndex(b => b.valid && b.tag === tag);
-                    if (wayIndex !== -1) {
-                         blockToHighlight = { setIndex, wayIndex };
-                    }
-                    // If it was a miss and load, we need info about which way was chosen
-                    // This logic needs refinement based on backend providing more context
-                }
-
-            } catch (e) {
-                console.error("Error calculating highlight target:", e);
-            }
-        }
-
         state.sets.forEach((set, setIndex) => {
             const setDiv = document.createElement('div');
             setDiv.className = 'cache-set';
@@ -255,13 +228,21 @@ document.addEventListener('DOMContentLoaded', () => {
             setDiv.appendChild(blocksDiv);
             cacheVisDiv.appendChild(setDiv);
         });
+
+        // Add tooltip listeners after rendering blocks
+        addTooltipListeners();
+
+        // Apply highlight after rendering
+        if (highlightedSetIndex !== null && highlightedWayIndex !== null) {
+            highlightBlock(highlightedSetIndex, highlightedWayIndex, isHit);
+        }
     }
 
     function updateStats(stats) {
         if (!stats) {
             statsDisplayDiv.innerHTML = '<p>Stats unavailable.</p>';
-            return;
-        }
+        return;
+    }
         statsDisplayDiv.innerHTML = `
             <p>Accesses: <span>${stats.totalAccesses}</span></p>
             <p>Hits: <span>${stats.hits}</span></p>
@@ -303,23 +284,46 @@ document.addEventListener('DOMContentLoaded', () => {
         return true;
     }
 
+    function highlightTraceAddress(index) {
+        const lines = traceInput.value.split(',');
+        if (index < 0 || index >= lines.length) return; // Bounds check
+
+        let start = 0;
+        for (let i = 0; i < index; i++) {
+            start += lines[i].length + 1; // +1 for the comma
+        }
+        const end = start + lines[index].trim().length;
+
+        if (traceInput.setSelectionRange) {
+            traceInput.focus(); // Focus needed for selection to show
+            traceInput.setSelectionRange(start, end);
+        } else if (traceInput.createTextRange) { // IE
+            const range = traceInput.createTextRange();
+            range.collapse(true);
+            range.moveEnd('character', end);
+            range.moveStart('character', start);
+            range.select();
+        }
+    }
+
     async function stepTrace() {
         if (traceIndex >= traceAddresses.length) {
             showStatus('End of trace reached.');
             stepTraceBtn.disabled = true;
             runTraceBtn.disabled = true;
             isTraceRunning = false;
-            return;
-        }
+        return;
+    }
         if (!currentConfig) { // Check if cache is configured
             showError('Cache not configured.');
-            return;
-        }
+        return;
+    }
 
         stepTraceBtn.disabled = true; // Disable while processing
         runTraceBtn.disabled = true;
         const address = traceAddresses[traceIndex];
         showStatus(`Stepping trace: Accessing ${address}...`);
+        highlightTraceAddress(traceIndex); // Highlight before access
         await accessCache(address); // Wait for access to complete
         traceIndex++;
         
@@ -337,7 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showError('Cache not configured.');
             return;
         }
-
+        
         isTraceRunning = true;
         stepTraceBtn.disabled = true;
         runTraceBtn.disabled = true;
@@ -346,6 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
         while (isTraceRunning && traceIndex < traceAddresses.length) {
             const address = traceAddresses[traceIndex];
             showStatus(`Running trace: Accessing ${address} (${traceIndex + 1}/${traceAddresses.length})`);
+            highlightTraceAddress(traceIndex); // Highlight before access
             await accessCache(address); // Wait for access
             traceIndex++;
             await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for visualization
@@ -358,6 +363,13 @@ document.addEventListener('DOMContentLoaded', () => {
             showStatus('Trace stopped.'); // If stopped manually (not implemented yet)
             stepTraceBtn.disabled = false; // Re-enable step if stopped mid-trace
             runTraceBtn.disabled = false;
+        }
+        resetTraceState();
+        showStatus('Trace reset.');
+        // Remove selection highlight
+        if (traceInput.setSelectionRange) {
+             traceInput.setSelectionRange(0, 0);
+             traceInput.blur(); // Remove focus
         }
     }
 
@@ -421,96 +433,142 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Address Breakdown Logic ---
     function updateAddressBreakdown(addressStr) {
-        if (!currentConfig || !addressStr) {
-            breakdownDisplayDiv.innerHTML = '<p>Enter an address and configure the cache.</p>';
-            breakdownPanel.style.display = 'none';
-            return;
-        }
+        let displayContent = '<p>Enter an address and configure the cache.</p>';
+        let showPanel = false;
 
-        const addrInt = parseAddressInput(addressStr);
-        if (addrInt === null) {
-             breakdownDisplayDiv.innerHTML = '<p>Invalid address format.</p>';
-             breakdownPanel.style.display = 'block'; // Show panel even with error
-             return;
-        }
+        if (currentConfig && addressStr) {
+            const addrInt = parseAddressInput(addressStr);
+            if (addrInt === null) {
+                 displayContent = '<p>Invalid address format.</p>';
+                 showPanel = true;
+            } else {
+                try {
+                    const { blockSize, numSets } = currentConfig;
+                    if (!blockSize || !numSets) {
+                         throw new Error('Invalid cache configuration for breakdown.');
+                    }
+                    
+                    const offsetBits = Math.log2(blockSize);
+                    const indexBits = numSets > 1 ? Math.log2(numSets) : 0;
+                    
+                    if (!Number.isInteger(offsetBits) || !Number.isInteger(indexBits)) {
+                         throw new Error('Block size and number of sets must be powers of 2 for accurate bit breakdown.');
+                    }
 
-        try {
-            const { blockSize, numSets } = currentConfig;
-            if (!blockSize || !numSets) {
-                 throw new Error('Invalid cache configuration for breakdown.');
+                    const totalBits = 32;
+                    const tagBits = totalBits - indexBits - offsetBits;
+
+                    if (tagBits < 0) {
+                        throw new Error('Invalid configuration: Too many index/offset bits.');
+                    }
+
+                    const offsetMask = (1 << offsetBits) - 1;
+                    const indexMask = numSets > 1 ? ((1 << indexBits) - 1) << offsetBits : 0;
+                    const tagMask = (~(indexMask | offsetMask)) >>> 0;
+
+                    const offset = addrInt & offsetMask;
+                    const index = numSets > 1 ? (addrInt & indexMask) >> offsetBits : 0;
+                    const tag = (addrInt & tagMask) >>> (indexBits + offsetBits);
+
+                    displayContent = `
+                        <div class="breakdown-row">
+                            <span class="breakdown-label">Address (Hex):</span>
+                            <span class="breakdown-value">0x${addrInt.toString(16)}</span>
+                        </div>
+                        <div class="breakdown-row">
+                            <span class="breakdown-label">Address (Dec):</span>
+                            <span class="breakdown-value">${addrInt}</span>
+                        </div>
+                        <hr>
+                        <div class="breakdown-row">
+                            <span class="breakdown-label">Tag:</span>
+                            <span class="breakdown-value">0x${tag.toString(16)} <span class="breakdown-bits">(${tagBits} bits)</span></span>
+                        </div>
+                        <div class="breakdown-row">
+                            <span class="breakdown-label">Index:</span>
+                            <span class="breakdown-value">${index} <span class="breakdown-bits">(${indexBits} bits)</span></span>
+                        </div>
+                        <div class="breakdown-row">
+                            <span class="breakdown-label">Offset:</span>
+                            <span class="breakdown-value">0x${offset.toString(16)} <span class="breakdown-bits">(${offsetBits} bits)</span></span>
+                        </div>
+                    `;
+                    showPanel = true;
+
+                } catch (error) {
+                    console.error("Breakdown Error:", error);
+                    displayContent = `<p>Error calculating breakdown: ${error.message}</p>`;
+                    showPanel = true;
+                }
             }
-            
-            // Calculate bits (ensure block size and num sets are powers of 2)
-            // Basic log2, requires power-of-2 sizes
-            const offsetBits = Math.log2(blockSize);
-            const indexBits = numSets > 1 ? Math.log2(numSets) : 0;
-            
-            if (!Number.isInteger(offsetBits) || !Number.isInteger(indexBits)) {
-                 throw new Error('Block size and number of sets must be powers of 2 for accurate bit breakdown.');
-            }
-
-            const totalBits = 32; // Assuming 32-bit addresses for visualization
-            const tagBits = totalBits - indexBits - offsetBits;
-
-            if (tagBits < 0) {
-                throw new Error('Invalid configuration: Too many index/offset bits.');
-            }
-
-            // Extract parts
-            const offsetMask = (1 << offsetBits) - 1;
-            const indexMask = numSets > 1 ? ((1 << indexBits) - 1) << offsetBits : 0;
-            const tagMask = (~(indexMask | offsetMask)) >>> 0; // Use unsigned shift for correct mask
-
-            const offset = addrInt & offsetMask;
-            const index = numSets > 1 ? (addrInt & indexMask) >> offsetBits : 0;
-            const tag = (addrInt & tagMask) >>> (indexBits + offsetBits); // Use unsigned shift
-
-            // Display
-            breakdownDisplayDiv.innerHTML = `
-                <div class="breakdown-row">
-                    <span class="breakdown-label">Address (Hex):</span>
-                    <span class="breakdown-value">0x${addrInt.toString(16)}</span>
-                </div>
-                <div class="breakdown-row">
-                    <span class="breakdown-label">Address (Dec):</span>
-                    <span class="breakdown-value">${addrInt}</span>
-                </div>
-                <hr>
-                <div class="breakdown-row">
-                    <span class="breakdown-label">Tag:</span>
-                    <span class="breakdown-value">0x${tag.toString(16)} <span class="breakdown-bits">(${tagBits} bits)</span></span>
-                </div>
-                <div class="breakdown-row">
-                    <span class="breakdown-label">Index:</span>
-                    <span class="breakdown-value">${index} <span class="breakdown-bits">(${indexBits} bits)</span></span>
-                </div>
-                <div class="breakdown-row">
-                    <span class="breakdown-label">Offset:</span>
-                    <span class="breakdown-value">0x${offset.toString(16)} <span class="breakdown-bits">(${offsetBits} bits)</span></span>
-                </div>
-            `;
-            breakdownPanel.style.display = 'block';
-
-        } catch (error) {
-            console.error("Breakdown Error:", error);
-            breakdownDisplayDiv.innerHTML = `<p>Error calculating breakdown: ${error.message}</p>`;
-            breakdownPanel.style.display = 'block';
         }
+        
+        breakdownDisplayDiv.innerHTML = displayContent;
+        breakdownPanel.style.display = showPanel ? 'block' : 'none';
     }
 
     // Function to highlight the specific block accessed
-    function highlightBlock(setIndex, wayIndex) {
+    function highlightBlock(setIndex, wayIndex, isHit) {
         // Remove previous highlights
-        document.querySelectorAll('.block-highlight').forEach(el => el.classList.remove('block-highlight'));
+        document.querySelectorAll('.block-highlight, .flash-hit, .flash-miss').forEach(el => {
+            el.classList.remove('block-highlight', 'flash-hit', 'flash-miss');
+        });
 
         // Add highlight to the target block
         const targetBlock = cacheVisDiv.querySelector(`.cache-block[data-set="${setIndex}"][data-way="${wayIndex}"]`);
         if (targetBlock) {
             targetBlock.classList.add('block-highlight');
-            // Remove the class after animation duration (optional, CSS handles removal via animation end state)
-            // setTimeout(() => {
-            //     targetBlock.classList.remove('block-highlight');
-            // }, 800); // Match CSS animation duration
+            
+            // Add temporary flash class based on hit/miss
+            const flashClass = isHit ? 'flash-hit' : 'flash-miss';
+            targetBlock.classList.add(flashClass);
+
+            // Remove classes after animation
+            setTimeout(() => {
+                targetBlock.classList.remove('block-highlight');
+            }, 800); // Match highlight animation duration
+             setTimeout(() => {
+                targetBlock.classList.remove(flashClass);
+            }, 600); // Match flash animation duration
+        }
+    }
+
+    // --- Tooltip Functions ---
+    function addTooltipListeners() {
+        document.querySelectorAll('.cache-block').forEach(blockDiv => {
+            blockDiv.addEventListener('mousemove', showTooltip);
+            blockDiv.addEventListener('mouseleave', hideTooltip);
+        });
+    }
+
+    function showTooltip(event) {
+        if (!currentConfig || !tooltip) return;
+        const blockDiv = event.currentTarget;
+        const setIndex = parseInt(blockDiv.dataset.set);
+        const wayIndex = parseInt(blockDiv.dataset.way);
+
+        if (isNaN(setIndex) || isNaN(wayIndex) || !currentCacheState || !currentCacheState.sets[setIndex]) return;
+        
+        const blockData = currentCacheState.sets[setIndex].blocks[wayIndex];
+        if (!blockData) return;
+
+        const content = `
+            <div class="tooltip-content">
+                <p><strong>Set ${setIndex}, Way ${wayIndex}</strong></p>
+                <p>Status: ${blockData.valid ? 'Valid' : 'Invalid'}${blockData.dirty ? ', Dirty' : ''}</p>
+                <p>Tag: ${blockData.valid ? '0x' + blockData.tag.toString(16) : '---'}</p>
+                <!-- Add data display if needed -->
+            </div>
+        `;
+        tooltip.innerHTML = content;
+        tooltip.style.left = `${event.pageX + 15}px`;
+        tooltip.style.top = `${event.pageY + 10}px`;
+        tooltip.classList.add('visible');
+    }
+
+    function hideTooltip() {
+        if (tooltip) {
+            tooltip.classList.remove('visible');
         }
     }
 

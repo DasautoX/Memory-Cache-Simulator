@@ -1,23 +1,24 @@
 :root {
-    --primary-color: #3498db;
-    --primary-dark: #2980b9;
-    --secondary-color: #e74c3c;
-    --background-color: #ecf0f1;
+    /* TAMUQ Theme */
+    --primary-color: #500000; /* TAMUQ Maroon */
+    --primary-dark: #380000;
+    --secondary-color: #CFB991; /* TAMUQ Beige/Gold Accent */
+    --background-color: #f5f5f5; /* Lighter neutral background */
     --panel-background: #ffffff;
-    --text-color: #2c3e50;
-    --text-light: #7f8c8d;
-    --border-color: #bdc3c7;
-    --hit-color: #2ecc71;
-    --miss-color: #f39c12;
-    --evict-color: var(--secondary-color);
+    --text-color: #333333; /* Darker grey text */
+    --text-light: #666666;
+    --border-color: #e0e0e0; /* Lighter border */
+    --hit-color: #4CAF50; /* Keep green for hit */
+    --miss-color: #ff9800; /* Keep orange for miss */
+    --evict-color: #f44336; /* Keep red for eviction indication */
     --valid-color: #ffffff;
-    --invalid-color: #f8f9fa;
-    --dirty-indicator: var(--secondary-color);
-    --highlight-color: #eaf5fc;
-    --input-bg: #fdfdfd;
-    --shadow-light: rgba(44, 62, 80, 0.1);
-    --shadow-medium: rgba(44, 62, 80, 0.15);
-    --border-radius: 5px;
+    --invalid-color: #f8f8f8;
+    --dirty-indicator: var(--primary-dark);
+    --highlight-color: #f2e9e4; /* Light maroon/beige tint */
+    --input-bg: #ffffff;
+    --shadow-light: rgba(0, 0, 0, 0.06);
+    --shadow-medium: rgba(0, 0, 0, 0.1);
+    --border-radius: 4px; /* Slightly less rounded */
 }
 
 * {
@@ -36,30 +37,45 @@ body {
 
 .container {
     max-width: 1400px;
-    margin: 0 auto;
-    background-color: transparent;
-    padding: 0;
-    border-radius: 0;
-    box-shadow: none;
+    margin: 20px auto;
+    background-color: var(--panel-background);
+    padding: 30px;
+    border-radius: var(--border-radius);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.08); /* Softer shadow on container */
 }
 
 header {
     text-align: center;
-    margin-bottom: 40px;
-    padding-bottom: 0;
-    border-bottom: none;
+    margin-bottom: 30px; /* Reduced margin */
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border-color);
+    position: relative; /* For potential absolute elements if needed later */
 }
 
-header h1 {
-    color: var(--text-color);
+.header-content {
+    display: flex;
+    align-items: center;
+    justify-content: center; /* Center content if needed, or use space-between */
+    gap: 20px;
+    text-align: left; /* Align text left */
+}
+
+.header-logo {
+    max-height: 65px; /* Smaller logo */
+    margin-bottom: 0; /* Remove bottom margin */
+}
+
+.header-text h1 {
+    color: var(--primary-dark);
     margin-bottom: 8px;
     font-size: 2.2em;
     font-weight: 600;
 }
 
-header p {
+.header-text p {
     color: var(--text-light);
-    font-size: 1.1em;
+    font-size: 1.05em;
+    margin-top: 3px;
 }
 
 .simulator-layout {
@@ -75,21 +91,41 @@ header p {
     min-height: 75vh;
 }
 
+/* Give control column a subtle background */
+.config-panel,
+.access-panel,
+.breakdown-panel,
+.stats-panel {
+    background-color: #fdfdfd; /* Slightly off-white */
+}
+
 .panel {
-    background-color: var(--panel-background);
+    background-color: var(--panel-background); /* Keep this for visual panel default */
     padding: 25px;
     border-radius: var(--border-radius);
-    border: 1px solid var(--border-color);
-    box-shadow: 0 3px 6px var(--shadow-light);
+    margin-bottom: 20px; /* Add space below panels in the column */
+    transition: opacity 0.4s ease-in-out, transform 0.4s ease-in-out;
+    opacity: 1;
+    transform: translateY(0);
+}
+.panel[style*="display: none"] { /* Start hidden panels slightly off-screen */
+   opacity: 0;
+   transform: translateY(10px);
+}
+
+.panel:last-child {
+    padding-top: 15px;
+    margin-bottom: 0;
+    background-color: #fdfdff; /* Different background for vis */
 }
 
 .panel h2 {
-    font-size: 1.25em;
+    font-size: 1.15em; /* Fine-tune title size */
     color: var(--primary-dark);
     margin: -25px -25px 20px -25px;
     padding: 15px 25px;
     border-bottom: 1px solid var(--border-color);
-    background-color: #f8f9fa;
+    background-color: #fafafa; /* Very light grey title bar */
     border-radius: var(--border-radius) var(--border-radius) 0 0;
     font-weight: 600;
 }
@@ -129,12 +165,14 @@ header p {
 .form-group textarea:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+    box-shadow: 0 0 0 2px rgba(80, 0, 0, 0.15); /* Maroon focus ring */
 }
 
 .form-group textarea {
     min-height: 80px;
     resize: vertical;
+    background-color: var(--primary-color);
+    color: white;
 }
 
 .form-group small {
@@ -161,12 +199,13 @@ header p {
 }
 
 .btn {
-    padding: 8px 15px;
+    padding: 9px 16px; /* Slightly larger buttons */
     border: none;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     cursor: pointer;
     font-size: 0.9em;
     transition: background-color 0.2s ease;
+    color: #fff;
 }
 
 .btn.primary {
@@ -178,19 +217,28 @@ header p {
 }
 
 .btn.secondary {
-    background-color: #bdc3c7;
+    background-color: #e0e0e0; /* Lighter grey */
     color: var(--text-color);
 }
 .btn.secondary:hover {
-    background-color: #abb2b9;
+    background-color: #bdbdbd;
 }
 
 #reset-btn {
-    background-color: var(--secondary-color);
+    background-color: #757575; /* Darker grey */
     color: white;
 }
 #reset-btn:hover {
-    background-color: #c0392b;
+    background-color: #616161;
+}
+
+#access-btn {
+    background-color: var(--secondary-color);
+    color: var(--primary-dark);
+    font-weight: 600;
+}
+#access-btn:hover {
+    background-color: #e8d7b0; /* Lighter beige */
 }
 
 #access-status {
@@ -200,9 +248,12 @@ header p {
     border: 1px solid var(--border-color);
     font-weight: bold;
     text-align: center;
-    min-height: 300px;
-    max-height: 70vh;
-    overflow-y: auto;
+    min-height: 300px; /* Adjust as needed */
+    max-height: 70vh; /* Prevent excessive height */
+    overflow-y: auto; /* Add scroll if needed */
+    background-color: #ffffff; /* White vis area */
+    text-transform: uppercase; /* Make set headers stand out */
+    letter-spacing: 0.5px;
 }
 
 #access-status.hit {
@@ -225,9 +276,9 @@ header p {
 }
 
 .cache-set {
-    margin-bottom: 20px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid #ecf0f1;
+    margin-bottom: 15px; /* Adjust spacing */
+    padding-bottom: 15px;
+    border-bottom: 1px solid #eeeeee; /* Lighter separator */
 }
 
 .cache-set:last-child {
@@ -239,47 +290,76 @@ header p {
 .set-header {
     font-weight: bold;
     margin-bottom: 10px;
-    font-size: 0.95em;
-    color: var(--text-light);
+    font-size: 0.9em; /* Smaller set header */
+    color: var(--primary-dark);
     padding-left: 5px;
+    text-transform: uppercase; /* Make set headers stand out */
+    letter-spacing: 0.5px;
 }
 
 .cache-blocks {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 12px; /* Slightly more gap */
 }
 
 .cache-block {
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
-    padding: 10px 12px;
-    font-size: 0.85em;
-    min-width: 120px;
+    padding: 8px 10px; /* Adjust padding */
+    font-size: 0.8em; /* Slightly smaller block font */
+    min-width: 110px; /* Adjust width */
     transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.2s ease;
-    box-shadow: 0 2px 4px var(--shadow-light);
-    position: relative;
+    box-shadow: 0 1px 2px var(--shadow-light); /* Lighter default shadow */
+    position: relative; /* For potential pseudo-elements */
     line-height: 1.4;
+    overflow: hidden; /* Hide potential icon overflow */
+    background-clip: padding-box; /* Prevent background bleeding into border */
+}
+
+.cache-block span {
+    display: block; /* Ensure each span takes its line */
 }
 
 .cache-block:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 8px var(--shadow-medium);
+    box-shadow: 0 3px 6px var(--shadow-medium);
 }
 
 .cache-block.valid {
     background-color: var(--valid-color);
     color: var(--text-color);
+    box-shadow: none;
 }
 
 .cache-block.invalid {
     background-color: var(--invalid-color);
     color: #aab;
     border-style: dashed;
+    box-shadow: none;
+}
+
+.cache-block.invalid:hover {
+    transform: none;
+    box-shadow: none;
 }
 
 .cache-block.dirty {
-    border-left: 4px solid var(--dirty-indicator);
+    /* Use background indicator instead of border */
+    /* border-left: 4px solid var(--dirty-indicator); */
+}
+
+/* Icon for Dirty status */
+.cache-block.dirty::after {
+    content: '\f044'; /* Font Awesome pencil icon for dirty/modified */
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    position: absolute;
+    bottom: 4px; /* Adjust position */
+    right: 5px;
+    font-size: 0.85em;
+    color: var(--dirty-indicator);
+    opacity: 0.7;
 }
 
 .block-tag,
@@ -291,6 +371,7 @@ header p {
 
 .block-tag span {
     font-weight: bold;
+    word-break: break-all; /* Break long tags */
 }
 
 .block-status {
@@ -299,9 +380,22 @@ header p {
     font-style: italic;
 }
 
+#stats-display {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px 15px; /* Row gap, Column gap */
+}
+
 #stats-display p {
-    margin-bottom: 8px;
+    margin-bottom: 0; /* Remove default margin */
     font-size: 0.95em;
+    padding: 5px;
+    border-bottom: 1px dotted #eee;
+    display: flex; /* Align label and value */
+    justify-content: space-between; /* Space out label and value */
+}
+#stats-display p:nth-last-child(-n+2) { /* Remove border from last row */
+    border-bottom: none;
 }
 
 #stats-display span {
@@ -364,8 +458,9 @@ header p {
     top: 4px;
     right: 6px;
     font-size: 0.8em;
-    color: var(--text-light);
+    color: var(--primary-dark); /* Darker blue */
     opacity: 0.7;
+    font-style: italic;
 }
 
 /* Highlight style for accessed block */
@@ -443,4 +538,67 @@ header p {
 }
 
 /* Add Google Font (Inter) */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap'); 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+/* Import Font Awesome for icons */
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
+
+/* Tooltip Container */
+.tooltip {
+    position: absolute;
+    background-color: rgba(44, 62, 80, 0.9); /* Dark background */
+    color: white;
+    padding: 8px 12px;
+    border-radius: var(--border-radius);
+    font-size: 0.85em;
+    white-space: nowrap;
+    z-index: 100;
+    pointer-events: none; /* Don't interfere with mouse events */
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.tooltip.visible {
+    opacity: 1;
+}
+
+.tooltip-content p {
+    margin: 0 0 4px 0;
+}
+.tooltip-content p:last-child {
+    margin-bottom: 0;
+}
+
+/* Add temporary visual cues for hit/miss on the block */
+.cache-block.flash-hit {
+    animation: flash-hit-animation 0.6s ease-out;
+}
+.cache-block.flash-miss {
+    animation: flash-miss-animation 0.6s ease-out;
+}
+
+@keyframes flash-hit-animation {
+    0%, 100% { border-color: var(--border-color); }
+    50% { border-color: var(--hit-color); border-width: 1px; box-shadow: 0 0 5px var(--hit-color); }
+}
+@keyframes flash-miss-animation {
+    0%, 100% { border-color: var(--border-color); }
+    50% { border-color: var(--miss-color); border-width: 1px; box-shadow: 0 0 5px var(--miss-color); }
+}
+
+/* Adjust panel spacing specifically for the visualization */
+.visual-panel {
+    padding-top: 15px;
+    margin-bottom: 0;
+}
+
+/* Footer Styles */
+footer {
+    text-align: center;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.9em;
+    color: var(--text-light);
+} 

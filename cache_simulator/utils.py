@@ -154,11 +154,14 @@ class CacheStatistics:
     
     def get_stats(self) -> dict:
         """Get all statistics as a dictionary."""
+        # Ensure properties are evaluated before creating the dict
+        current_hit_rate = self.hit_rate
+        current_miss_rate = self.miss_rate
         return {
             'accesses': self.accesses,
             'hits': self.hits,
             'misses': self.misses,
             'evictions': self.evictions,
-            'hit_rate': self.hit_rate,
-            'miss_rate': self.miss_rate
+            'hit_rate': current_hit_rate,
+            'miss_rate': current_miss_rate
         } 

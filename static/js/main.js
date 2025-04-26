@@ -1,1392 +1,520 @@
-// Global state
-let currentMode = 'manual';
-let currentSimulation = null;
-let currentStep = 0;
-let animationSpeed = 1000;
-let showAddressBits = true;
-let enableAnimations = true;
-let currentCacheState = null;
-let operationSteps = [];
-let isAnimating = false;
-let panZoomInstance = null;
-let cacheStructure = null;
-let blockSize = 60;
-let padding = 10;
-let isInitialized = false;
-
-// Sample simulations
-const sampleSimulations = {
-    directMapped: {
-        config: {
-            size: '16B',
-            blockSize: '4B',
-            associativity: '1',
-            policy: 'LRU'
-        },
-        steps: [
-            {
-                type: 'read',
-                address: '0x00',
-                description: 'First read access - this will be a compulsory miss'
-            },
-            {
-                type: 'read',
-                address: '0x04',
-                description: 'Reading from the same block - this will be a hit'
-            },
-            {
-                type: 'write',
-                address: '0x40',
-                description: 'Writing to a different block - this will cause an eviction'
-            }
-        ]
-    },
-    fullyAssociative: {
-        config: {
-            size: '16B',
-            blockSize: '4B',
-            associativity: 'fully',
-            policy: 'LRU'
-        },
-        steps: [
-            {
-                type: 'read',
-                address: '0x00',
-                description: 'First read - compulsory miss'
-            },
-            {
-                type: 'read',
-                address: '0x20',
-                description: 'Reading a different block - miss but no eviction needed'
-            },
-            {
-                type: 'read',
-                address: '0x40',
-                description: 'Third read - miss but no eviction needed'
-            },
-            {
-                type: 'read',
-                address: '0x60',
-                description: 'Fourth read - miss but no eviction needed'
-            },
-            {
-                type: 'read',
-                address: '0x80',
-                description: 'Fifth read - miss, will cause LRU eviction'
-            }
-        ]
-    },
-    setAssociative: {
-        config: {
-            size: '32B',
-            blockSize: '8B',
-            associativity: '2',
-            policy: 'LRU'
-        },
-        steps: [
-            {
-                type: 'read',
-                address: '0x00',
-                description: 'First read to set 0 - compulsory miss'
-            },
-            {
-                type: 'read',
-                address: '0x20',
-                description: 'Second read to set 0 - miss but no eviction'
-            },
-            {
-                type: 'write',
-                address: '0x40',
-                description: 'Write to set 1 - miss'
-            },
-            {
-                type: 'read',
-                address: '0x00',
-                description: 'Re-read from set 0 - hit'
-            },
-            {
-                type: 'write',
-                address: '0x60',
-                description: 'Write to set 1 - miss, will cause eviction'
-            }
-        ]
-    }
-};
-
-// DOM Elements
-const modeButtons = document.querySelectorAll('.mode-btn');
-const samplesSection = document.getElementById('samples-section');
-const sampleCards = document.querySelectorAll('.sample-card');
-const simulationControls = document.getElementById('simulation-controls');
-const prevButton = document.getElementById('prev-step');
-const nextButton = document.getElementById('next-step');
-const resetButton = document.getElementById('reset-simulation');
-const stepDescription = document.getElementById('step-description');
-const configForm = document.getElementById('config-form');
-const manualModeSections = document.getElementById('manual-mode-sections');
-const addressInput = document.getElementById('address');
-const readButton = document.getElementById('read-btn');
-const writeButton = document.getElementById('write-btn');
-const traceInput = document.getElementById('trace');
-const runTraceButton = document.getElementById('run-trace-btn');
-const addressBitsDisplay = document.getElementById('address-bits-display');
-const showBitsCheckbox = document.getElementById('show-bits');
-const enableAnimationsCheckbox = document.getElementById('enable-animations');
-const traceSpeedInput = document.getElementById('trace-speed');
-const statsChart = document.getElementById('stats-chart');
-const visualizationSection = document.getElementById('visualization-section');
-const logSection = document.getElementById('log-section');
-
-// Event Listeners
 document.addEventListener('DOMContentLoaded', () => {
-    try {
-        initializeUI();
-        setupEventListeners();
-        initializeChart();
-        isInitialized = true;
-    } catch (error) {
-        console.error('Error during initialization:', error);
-        showError('Failed to initialize application');
+    console.log('DOM fully loaded and parsed');
+    
+    // State variables
+    let traceAddresses = [];
+    let traceIndex = 0;
+    let isTraceRunning = false;
+    let currentConfig = null;
+
+    // DOM Elements
+    const configForm = document.getElementById('config-form');
+    const cacheSizeInput = document.getElementById('cache-size');
+    const blockSizeInput = document.getElementById('block-size');
+    const associativitySelect = document.getElementById('associativity');
+    const policySelect = document.getElementById('policy');
+    const resetBtn = document.getElementById('reset-btn');
+
+    const accessPanel = document.getElementById('access-panel');
+    const addressInput = document.getElementById('address');
+    const accessBtn = document.getElementById('access-btn');
+    const traceInput = document.getElementById('trace');
+    const runTraceBtn = document.getElementById('run-trace-btn');
+    const stepTraceBtn = document.getElementById('step-trace-btn');
+    const resetTraceBtn = document.getElementById('reset-trace-btn');
+    const accessStatusDiv = document.getElementById('access-status');
+
+    const visualPanel = document.getElementById('visual-panel');
+    const cacheVisDiv = document.getElementById('cache-visualization');
+    const statsPanel = document.getElementById('stats-panel');
+    const statsDisplayDiv = document.getElementById('stats-display');
+    const breakdownPanel = document.getElementById('breakdown-panel');
+    const breakdownDisplayDiv = document.getElementById('address-breakdown-display');
+    const loadingIndicator = document.getElementById('loading-indicator');
+
+    // --- Helper Functions ---
+    function showError(message) {
+        accessStatusDiv.textContent = `Error: ${message}`;
+        accessStatusDiv.className = 'access-status error'; // Add error class for styling
+        console.error(message);
     }
-});
 
-function initializeUI() {
-    // Ensure all required DOM elements exist
-    const requiredElements = {
-        'samples-section': samplesSection,
-        'simulation-controls': simulationControls,
-        'visualization-section': visualizationSection,
-        'log-section': logSection,
-        'manual-mode-sections': manualModeSections,
-        'cache-diagram': document.getElementById('cache-diagram'),
-        'cache-tooltip': document.getElementById('cache-tooltip')
-    };
-
-    for (const [name, element] of Object.entries(requiredElements)) {
-        if (!element) {
-            throw new Error(`Required element "${name}" not found`);
+    function showStatus(message, isHit) {
+        accessStatusDiv.textContent = message;
+        if (isHit !== undefined) {
+            accessStatusDiv.className = isHit ? 'access-status hit' : 'access-status miss';
         }
     }
 
-    // Hide all sections initially
-    samplesSection.style.display = 'none';
-    simulationControls.style.display = 'none';
-    visualizationSection.style.display = 'none';
-    logSection.style.display = 'none';
-    
-    // Show manual mode sections by default
-    manualModeSections.style.display = 'block';
-    
-    // Set initial mode
-    updateUIForMode('manual');
-    
-    // Initialize controls with null checks
-    if (showBitsCheckbox) showBitsCheckbox.checked = showAddressBits;
-    if (enableAnimationsCheckbox) enableAnimationsCheckbox.checked = enableAnimations;
-    if (traceSpeedInput) traceSpeedInput.value = animationSpeed;
-}
-
-function setupEventListeners() {
-    // Mode selection
-    modeButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            const mode = button.dataset.mode;
-            updateUIForMode(mode);
-        });
-    });
-
-    // Sample simulation cards
-    sampleCards.forEach(card => {
-        card.addEventListener('click', () => {
-            const simulationType = card.dataset.simulation;
-            startSimulation(simulationType);
-        });
-    });
-
-    // Simulation controls
-    if (prevButton) prevButton.addEventListener('click', () => stepSimulation(-1));
-    if (nextButton) nextButton.addEventListener('click', () => stepSimulation(1));
-    if (resetButton) resetButton.addEventListener('click', resetSimulation);
-
-    // Visualization controls
-    if (showBitsCheckbox) {
-        showBitsCheckbox.addEventListener('change', (e) => {
-            showAddressBits = e.target.checked;
-            updateAddressBitsDisplay();
-        });
+    function parseAddressInput(inputStr) {
+        const trimmed = inputStr.trim();
+        if (!trimmed) return null;
+        try {
+            return parseInt(trimmed); // Handles dec and hex (0x...)
+        } catch (e) {
+            return null;
+        }
     }
 
-    if (enableAnimationsCheckbox) {
-        enableAnimationsCheckbox.addEventListener('change', (e) => {
-            enableAnimations = e.target.checked;
-        });
+    // --- Loading Indicator Functions ---
+    function showLoading() {
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'block';
+            // Restart animation by removing/adding class or changing animation name
+            loadingIndicator.style.animation = 'none';
+            void loadingIndicator.offsetWidth; // Trigger reflow
+            loadingIndicator.style.animation = 'fadeInOut 0.5s ease';
+        }
     }
 
-    if (traceSpeedInput) {
-        traceSpeedInput.addEventListener('input', (e) => {
-            animationSpeed = parseInt(e.target.value);
-        });
+    function hideLoading() {
+        // The fadeOut is part of the animation, just hide after delay
+        // We rely on the animation to fade it out.
+        // setTimeout(() => {
+        //     if (loadingIndicator) loadingIndicator.style.display = 'none';
+        // }, 500); // Match animation duration
     }
 
-    // Manual mode controls
-    if (configForm) {
-        configForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const formData = new FormData(configForm);
-            
-            // Get form values
-            const size = formData.get('size');
-            const blockSize = formData.get('blockSize');
-            const associativity = formData.get('associativity');
-            const policy = formData.get('policy');
-            
-            // Create config object
-            const config = {
-                size: size,
-                blockSize: blockSize,
-                associativity: associativity,
-                policy: policy
-            };
-            
-            console.log('Sending config:', config);
-            
-            configureCache(config)
-                .then(() => {
-                    visualizationSection.style.display = 'block';
-                    logSection.style.display = 'block';
-                })
-                .catch(error => {
-                    console.error('Error configuring cache:', error);
-                    showError('Failed to configure cache: ' + error.message);
-                });
-        });
-    }
-
-    // Memory access controls
-    if (readButton) {
-        readButton.addEventListener('click', () => {
-            const address = addressInput.value;
-            if (address) {
-                performRead(address);
-            } else {
-                showError('Please enter a valid address');
+    // --- API Call Functions ---
+    async function apiCall(endpoint, method = 'GET', body = null) {
+        const options = {
+            method,
+            headers: {
+                'Content-Type': 'application/json'
             }
-        });
-    }
+        };
+        if (body) {
+            options.body = JSON.stringify(body);
+        }
 
-    if (writeButton) {
-        writeButton.addEventListener('click', () => {
-            const address = addressInput.value;
-            if (address) {
-                performWrite(address);
-            } else {
-                showError('Please enter a valid address');
+        showLoading(); // Show loading indicator before fetch
+        try {
+            console.log(`API Call: ${method} ${endpoint}`, body || '');
+            const response = await fetch(endpoint, options);
+            const data = await response.json();
+            console.log(`API Response: ${endpoint}`, data);
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `Request failed with status ${response.status}`);
             }
-        });
-    }
-
-    // Trace controls
-    if (runTraceButton) {
-        runTraceButton.addEventListener('click', () => {
-            const traceText = traceInput.value.trim();
-            if (traceText) {
-                const addresses = traceText.split(',').map(addr => addr.trim());
-                runAddressTrace(addresses);
-            } else {
-                showError('Please enter a valid address trace');
-            }
-        });
-    }
-
-    // Update visualization control listeners
-    document.getElementById('zoom-in')?.addEventListener('click', () => {
-        if (panZoomInstance) panZoomInstance.zoomIn();
-    });
-    
-    document.getElementById('zoom-out')?.addEventListener('click', () => {
-        if (panZoomInstance) panZoomInstance.zoomOut();
-    });
-    
-    document.getElementById('reset-view')?.addEventListener('click', () => {
-        if (panZoomInstance) {
-            panZoomInstance.reset();
-            panZoomInstance.fit();
-            panZoomInstance.center();
-        }
-    });
-}
-
-function updateUIForMode(mode) {
-    currentMode = mode;
-    
-    // Update mode buttons
-    modeButtons.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.mode === mode);
-    });
-
-    // Get manual mode sections
-    const manualModeSections = document.getElementById('manual-mode-sections');
-    
-    // Update section visibility
-    if (mode === 'manual') {
-        samplesSection.style.display = 'none';
-        simulationControls.style.display = 'none';
-        if (manualModeSections) {
-            manualModeSections.style.display = 'block';
-        }
-    } else {
-        samplesSection.style.display = 'block';
-        if (manualModeSections) {
-            manualModeSections.style.display = 'none';
+            return data;
+        } catch (error) {
+            console.error(`API Error (${endpoint}):`, error);
+            showError(error.message);
+            return null; // Indicate failure
+        } finally {
+            hideLoading(); // Hide loading indicator after fetch (in finally)
         }
     }
-}
 
-async function startSimulation(simulationType) {
-    if (!isInitialized) {
-        showError('Application not fully initialized');
-        return;
-    }
-
-    try {
-        currentSimulation = sampleSimulations[simulationType];
-        if (!currentSimulation) {
-            throw new Error(`Invalid simulation type: ${simulationType}`);
-        }
-
-        currentStep = 0;
-        
-        // Configure cache with simulation settings
-        const config = { ...currentSimulation.config };
-        
-        // Ensure size values have units
-        if (!config.size.endsWith('B')) config.size += 'B';
-        if (!config.blockSize.endsWith('B')) config.blockSize += 'B';
-        
-        console.log('Starting simulation with config:', config);
-        
-        await configureCache(config);
-        
-        // Update UI elements
-        simulationControls.style.display = 'block';
-        visualizationSection.style.display = 'block';
-        logSection.style.display = 'block';
-        
-        updateSimulationControls();
-        updateStepDescription();
-        
-    } catch (error) {
-        console.error('Error in startSimulation:', error);
-        showError('Failed to start simulation: ' + error.message);
-    }
-}
-
-function stepSimulation(direction) {
-    if (!currentSimulation) return;
-
-    currentStep += direction;
-    currentStep = Math.max(0, Math.min(currentStep, currentSimulation.steps.length - 1));
-
-    const step = currentSimulation.steps[currentStep];
-    if (step.type === 'read') {
-        performRead(step.address);
-    } else {
-        performWrite(step.address);
-    }
-
-    updateSimulationControls();
-    updateStepDescription();
-}
-
-function updateSimulationControls() {
-    prevButton.disabled = currentStep === 0;
-    nextButton.disabled = currentStep === currentSimulation.steps.length - 1;
-}
-
-function updateStepDescription() {
-    if (!currentSimulation || currentStep >= currentSimulation.steps.length) {
-        stepDescription.textContent = '';
-        return;
-    }
-
-    const step = currentSimulation.steps[currentStep];
-    stepDescription.textContent = `Step ${currentStep + 1}: ${step.description}`;
-}
-
-function resetSimulation() {
-    if (!currentSimulation) return;
-    
-    configureCache(currentSimulation.config)
-        .then(() => {
-            currentStep = 0;
-            updateSimulationControls();
-            updateStepDescription();
-        });
-}
-
-// Cache Operations
-async function configureCache(config) {
-    try {
-        console.log('Configuring cache with:', config);
-        
-        const response = await fetch('/api/configure', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(config)
-        });
-        
-        const result = await response.json();
-        console.log('Configuration response:', result);
-        
-        if (!response.ok || !result.success) {
-            throw new Error(result.error || 'Configuration failed');
-        }
-        
-        // Get the current cache state
-        const stateResponse = await fetch('/api/state');
-        const stateResult = await stateResponse.json();
-        
-        if (!stateResponse.ok || !stateResult.success) {
-            throw new Error(stateResult.error || 'Failed to get cache state');
-        }
-        
-        currentCacheState = stateResult.state;
-        
-        // Show the visualization and log sections
-        visualizationSection.style.display = 'block';
-        logSection.style.display = 'block';
-        
-        // Show the access section for manual mode
-        const accessSection = document.getElementById('access-section');
-        if (accessSection) {
-            accessSection.style.display = 'block';
-        }
-        
-        // Initialize visualization
-        initializeCacheVisualization(result.config);
-        
-        // Update cache display with initial state
-        updateCacheDisplay(stateResult.state);
-        
-        // Initialize stats
-        await updateStats();
-        
-        // Reset any existing animations
-        clearAnimations();
-        
-        // Reset the access log
-        const accessLog = document.getElementById('access-log');
-        if (accessLog) {
-            accessLog.innerHTML = '';
-        }
-        
-        // Reset address input
-        const addressInput = document.getElementById('address');
-        if (addressInput) {
-            addressInput.value = '';
-        }
-        
-        // Reset trace input
-        const traceInput = document.getElementById('trace');
-        if (traceInput) {
-            traceInput.value = '';
-        }
-        
-        return result;
-    } catch (error) {
-        console.error('Error configuring cache:', error);
-        showError(error.message || 'Failed to configure cache');
-        throw error;
-    }
-}
-
-async function performRead(address) {
-    // Parse address consistently
-    const parsedAddress = address.startsWith('0x') ? parseInt(address.slice(2), 16) : parseInt(address);
-    if (isNaN(parsedAddress)) {
-        showError('Invalid address format');
-        return;
-    }
-
-    await visualizeOperation(parsedAddress, false);
-    try {
-        const response = await fetch('/api/access', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                address: parsedAddress,
-                isWrite: false
-            })
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Read operation failed');
-        }
-        
-        const result = await response.json();
-        if (!result.success) {
-            throw new Error(result.error || 'Read operation failed');
-        }
-        
-        const accessResult = {
-            operation: 'read',
-            address: `0x${parsedAddress.toString(16).toUpperCase().padStart(8, '0')}`,
-            hit: result.result.hit,
-            evicted: result.result.evicted !== null,
-            evictedIndex: 0,
-            setIndex: 0
+    async function configureCache() {
+        const config = {
+            size: cacheSizeInput.value,
+            blockSize: blockSizeInput.value,
+            associativity: associativitySelect.value,
+            policy: policySelect.value
         };
         
-        await animateAccess(accessResult);
-        updateCacheDisplay(result.result.state);
-        
-        // Update stats
-        await updateStats();
-        
-        addLogEntry(accessResult);
-        return accessResult;
-    } catch (error) {
-        console.error('Error performing read:', error);
-        showError('Failed to perform read operation: ' + error.message);
-    }
-}
-
-async function performWrite(address) {
-    // Parse address consistently
-    const parsedAddress = address.startsWith('0x') ? parseInt(address.slice(2), 16) : parseInt(address);
-    if (isNaN(parsedAddress)) {
-        showError('Invalid address format');
-        return;
-    }
-
-    await visualizeOperation(parsedAddress, true);
-    try {
-        const response = await fetch('/api/access', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                address: parsedAddress,
-                isWrite: true
-            })
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Write operation failed');
+        const result = await apiCall('/api/configure', 'POST', config);
+        if (result) {
+            currentConfig = result.config; // Store current config
+            showStatus('Cache configured successfully.');
+            resetVisualizationAndStats();
+            updateVisualization(await getCacheState()); // Fetch initial state
+            updateStats(await getCacheStats());
+            // Show other panels
+            accessPanel.style.display = 'block';
+            visualPanel.style.display = 'block';
+            statsPanel.style.display = 'block';
+            resetTraceState(); // Reset trace when reconfiguring
+            breakdownPanel.style.display = 'none'; // Hide on reconfigure until address entered
+            breakdownDisplayDiv.innerHTML = '<p>Enter an address to see breakdown.</p>';
         }
-        
-        const result = await response.json();
-        if (!result.success) {
-            throw new Error(result.error || 'Write operation failed');
+    }
+
+    async function resetCache() {
+        const result = await apiCall('/api/reset', 'POST');
+        if (result) {
+            currentConfig = null;
+            showStatus('Cache reset.');
+            resetVisualizationAndStats();
+            // Hide panels
+            accessPanel.style.display = 'none';
+            visualPanel.style.display = 'none';
+            statsPanel.style.display = 'none';
+            resetTraceState();
+            breakdownPanel.style.display = 'none';
         }
-        
-        const accessResult = {
-            operation: 'write',
-            address: `0x${parsedAddress.toString(16).toUpperCase().padStart(8, '0')}`,
-            hit: result.result.hit,
-            evicted: result.result.evicted !== null,
-            evictedIndex: 0,
-            setIndex: 0
-        };
-        
-        await animateAccess(accessResult);
-        updateCacheDisplay(result.result.state);
-        
-        // Update stats
-        await updateStats();
-        
-        addLogEntry(accessResult);
-        return accessResult;
-    } catch (error) {
-        console.error('Error performing write:', error);
-        showError('Failed to perform write operation: ' + error.message);
-    }
-}
-
-// Visualization
-function updateCacheDisplay(cacheState) {
-    if (!cacheState) {
-        console.error('Invalid cache state provided');
-        return;
     }
 
-    try {
-        currentCacheState = cacheState;
-        
-        // Update cache visualization if initialized
-        if (isInitialized && document.getElementById('cache-diagram')) {
-            updateCacheVisualization(cacheState);
+    async function accessCache(address) {
+        if (currentConfig === null) {
+            showError('Cache not configured.');
+            return null;
         }
-        
-        // Update statistics display
-        updateStats(cacheState.stats);
-        
-    } catch (error) {
-        console.error('Error updating cache display:', error);
-        showError('Failed to update cache display');
+        const addrInt = parseAddressInput(address.toString());
+        if (addrInt === null) {
+            showError('Invalid address format.');
+            return null;
+        }
+
+        const result = await apiCall('/api/access', 'POST', { address: addrInt });
+        if (result && result.result) {
+            const accessData = result.result;
+            showStatus(`Address ${addrInt}: ${accessData.hit ? 'HIT' : 'MISS'}${accessData.evicted ? ' (Eviction: Tag 0x' + accessData.evicted.tag.toString(16) + ')' : ''}`, accessData.hit);
+            updateVisualization(accessData.state, addrInt);
+            updateStats(await getCacheStats()); // Fetch latest stats
+            updateAddressBreakdown(address.toString()); // Update breakdown on access
+            return accessData; // Return hit/miss info
+        }
+        return null;
     }
-}
 
-function updateCacheVisualization(cacheState) {
-    if (!cacheStructure || !cacheState) {
-        console.error('Cache structure or state not initialized');
-        return;
+    async function getCacheState() {
+        const result = await apiCall('/api/state');
+        return result ? result.state : null;
     }
 
-    try {
-        const { sets } = cacheState;
-        
-        sets.forEach((set, setIndex) => {
-            set.blocks.forEach((block, blockIndex) => {
-                const blockElement = document.querySelector(
-                    `[data-set-index="${setIndex}"][data-block-index="${blockIndex}"]`
-                );
-                
-                if (blockElement) {
-                    // Update block state
-                    blockElement.classList.remove('valid', 'invalid', 'dirty');
-                    blockElement.classList.add(block.valid ? 'valid' : 'invalid');
-                    if (block.dirty) blockElement.classList.add('dirty');
-                    
-                    // Update block content
-                    const content = formatBlockContent(block);
-                    blockElement.querySelector('.block-content').textContent = content;
-                    
-                    // Update tooltip data
-                    blockElement.setAttribute('data-tooltip', formatTooltipContent(block));
-                }
-            });
-        });
-        
-    } catch (error) {
-        console.error('Error updating cache visualization:', error);
+    async function getCacheStats() {
+        const result = await apiCall('/api/stats');
+        return result ? result.stats : null;
     }
-}
 
-function formatBlockContent(block) {
-    if (!block) return 'Empty';
-    
-    const tag = block.tag ? block.tag.toString(16).padStart(4, '0') : '----';
-    const data = block.data ? formatData(block.data) : '--------';
-    
-    return `${tag}:${data}`;
-}
-
-function formatTooltipContent(block) {
-    if (!block) return 'Empty block';
-    
-    return `Tag: 0x${block.tag ? block.tag.toString(16).padStart(4, '0') : '----'}
-Data: ${block.data ? formatData(block.data) : '--------'}
-Valid: ${block.valid ? 'Yes' : 'No'}
-Dirty: ${block.dirty ? 'Yes' : 'No'}`;
-}
-
-function formatData(data) {
-    if (!data) return '--------';
-    
-    // Handle both string and numeric data
-    const dataStr = typeof data === 'string' ? data : data.toString(16);
-    return dataStr.padStart(8, '0');
-}
-
-function parseAddress(address) {
-    try {
-        // Ensure address is a number
-        const numAddress = typeof address === 'string' ? parseInt(address, 16) : address;
-        
-        // Get cache configuration
-        const { indexBits, offsetBits } = currentCacheState.config;
-        
-        // Calculate masks
-        const indexMask = (1 << indexBits) - 1;
-        const offsetMask = (1 << offsetBits) - 1;
-        
-        // Extract components
-        const blockOffset = numAddress & offsetMask;
-        const setIndex = (numAddress >> offsetBits) & indexMask;
-        const tag = numAddress >> (indexBits + offsetBits);
-        
-        return { setIndex, blockIndex: 0, blockOffset, tag };
-    } catch (error) {
-        console.error('Error parsing address:', error);
-        return { setIndex: 0, blockIndex: 0, blockOffset: 0, tag: 0 };
+    // --- Visualization Update ---
+    function resetVisualizationAndStats() {
+        cacheVisDiv.innerHTML = '';
+        statsDisplayDiv.innerHTML = '<p>Configure cache to see stats.</p>';
+        showStatus(''); // Clear status
     }
-}
 
-function animateAccess(result) {
-    if (!enableAnimations || !result) return;
-    
-    try {
-        const { address, hit, evicted, loaded } = result;
-        const { setIndex, blockIndex } = parseAddress(address);
-        
-        // Remove any existing animations
-        clearAnimations();
-        
-        const blockElement = document.querySelector(
-            `[data-set-index="${setIndex}"][data-block-index="${blockIndex}"]`
-        );
-        
-        if (!blockElement) {
-            console.warn('Block element not found for animation');
+    function updateVisualization(state, accessedAddress = null) {
+        if (!state || !state.sets) {
+            cacheVisDiv.innerHTML = '<p>Cache not configured or state unavailable.</p>';
             return;
         }
+        cacheVisDiv.innerHTML = ''; // Clear previous state
         
-        // Determine animation type
-        let animationType = hit ? 'hit' : 'miss';
-        if (evicted) animationType = 'evict';
-        if (loaded) animationType = 'load';
-        
-        // Apply animation
-        blockElement.classList.add(animationType);
-        
-        // Remove animation after completion
-        setTimeout(() => {
-            if (blockElement.parentNode) {
-                blockElement.classList.remove(animationType);
-            }
-        }, animationSpeed);
-        
-    } catch (error) {
-        console.error('Error during access animation:', error);
-    }
-}
+        let blockToHighlight = null;
+        if (accessedAddress !== null && currentConfig) {
+            // Calculate which block corresponds to the accessed address
+             try {
+                const { blockSize, numSets } = currentConfig;
+                const offsetBits = Math.log2(blockSize);
+                const indexBits = numSets > 1 ? Math.log2(numSets) : 0;
+                const indexMask = numSets > 1 ? ((1 << indexBits) - 1) << offsetBits : 0;
+                const setIndex = numSets > 1 ? (accessedAddress & indexMask) >> offsetBits : 0;
+                
+                // Find the way - requires knowing the tag which isn't directly here
+                // We'll highlight the whole set for now, or the first block as a placeholder
+                // A more accurate highlight requires returning the accessed way index from backend
+                // Let's find the block by tag instead if possible
+                const tagMask = (~((1 << (offsetBits + indexBits)) - 1)) >>> 0;
+                const tag = (accessedAddress & tagMask) >>> (offsetBits + indexBits);
 
-function clearAnimations() {
-    try {
-        const animatedElements = document.querySelectorAll('.hit, .miss, .evict, .load');
-        animatedElements.forEach(element => {
-            ['hit', 'miss', 'evict', 'load'].forEach(className => {
-                element.classList.remove(className);
-            });
-        });
-    } catch (error) {
-        console.error('Error clearing animations:', error);
-    }
-}
-
-function updateAddressBitsDisplay(address, cacheConfig) {
-    const container = document.querySelector('.address-bits-display');
-    if (!container || !address) return;
-
-    const offsetBits = Math.log2(cacheConfig.blockSize);
-    const indexBits = Math.log2(cacheConfig.numSets);
-    const tagBits = 32 - offsetBits - indexBits;
-
-    const addressBin = parseInt(address, 16).toString(2).padStart(32, '0');
-    const tag = addressBin.slice(0, tagBits);
-    const index = addressBin.slice(tagBits, tagBits + indexBits);
-    const offset = addressBin.slice(tagBits + indexBits);
-
-    container.innerHTML = `
-        <div class="address-bits-title">Address Breakdown</div>
-        <div class="address-breakdown">
-            <div class="bit-group tag">
-                <div class="bit-label">Tag (${tagBits} bits)</div>
-                <div class="bit-value">${tag}</div>
-            </div>
-            <div class="bit-group index">
-                <div class="bit-label">Index (${indexBits} bits)</div>
-                <div class="bit-value">${index}</div>
-            </div>
-            <div class="bit-group offset">
-                <div class="bit-label">Offset (${offsetBits} bits)</div>
-                <div class="bit-value">${offset}</div>
-            </div>
-        </div>
-    `;
-}
-
-// Statistics
-function initializeChart() {
-    const ctx = statsChart.getContext('2d');
-    window.cacheChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [{
-                label: 'Hit Rate',
-                data: [],
-                borderColor: '#4caf50',
-                tension: 0.1
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 1
-                }
-            }
-        }
-    });
-}
-
-async function updateStats() {
-    try {
-        const response = await fetch('/api/stats');
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to get statistics');
-        }
-        
-        const result = await response.json();
-        if (!result.success) {
-            throw new Error(result.error || 'Failed to get statistics');
-        }
-        
-        const stats = result.stats;
-        
-        // Calculate rates
-        const totalAccesses = stats.totalAccesses || 0;
-        const hits = stats.hits || 0;
-        const misses = stats.misses || 0;
-        const evictions = stats.evictions || 0;
-        const hitRate = totalAccesses > 0 ? (hits / totalAccesses * 100).toFixed(2) : '0.00';
-        const missRate = totalAccesses > 0 ? (misses / totalAccesses * 100).toFixed(2) : '0.00';
-
-        // Update DOM elements
-        const elements = {
-            'total-accesses': totalAccesses,
-            'hits': hits,
-            'misses': misses,
-            'evictions': evictions,
-            'hit-rate': `${hitRate}%`
-        };
-
-        for (const [id, value] of Object.entries(elements)) {
-            const element = document.getElementById(id);
-            if (element) {
-                element.textContent = value;
-            }
-        }
-
-        // Update stats grid
-        const statsContainer = document.querySelector('.stats-container');
-        if (statsContainer) {
-            // Clear existing stats
-            statsContainer.innerHTML = '';
-
-            // Create stats grid
-            const statsGrid = document.createElement('div');
-            statsGrid.className = 'stats-grid';
-
-            // Create stat cards
-            const cards = [
-                { label: 'Hit Rate', value: `${hitRate}%` },
-                { label: 'Miss Rate', value: `${missRate}%` },
-                { label: 'Total Accesses', value: totalAccesses },
-                { label: 'Hits', value: hits },
-                { label: 'Misses', value: misses },
-                { label: 'Evictions', value: evictions }
-            ];
-
-            cards.forEach(({ label, value }) => {
-                const card = createStatCard(label, value);
-                statsGrid.appendChild(card);
-            });
-
-            // Add the stats grid to the container
-            statsContainer.appendChild(statsGrid);
-        }
-
-        // Update chart if it exists
-        if (window.cacheChart) {
-            window.cacheChart.data.labels.push(totalAccesses);
-            window.cacheChart.data.datasets[0].data.push(parseFloat(hitRate));
-            window.cacheChart.update();
-        }
-
-        return { totalAccesses, hits, misses, evictions, hitRate, missRate };
-    } catch (error) {
-        console.error('Error updating statistics:', error);
-        showError('Failed to update statistics: ' + error.message);
-    }
-}
-
-function createStatCard(label, value) {
-    const card = document.createElement('div');
-    card.className = 'stat-card';
-    
-    const labelElement = document.createElement('div');
-    labelElement.className = 'stat-label';
-    labelElement.textContent = label;
-    
-    const valueElement = document.createElement('div');
-    valueElement.className = 'stat-value';
-    valueElement.textContent = value;
-    
-    card.appendChild(labelElement);
-    card.appendChild(valueElement);
-    
-    return card;
-}
-
-function updateStatsChart(stats) {
-    const chartContainer = document.querySelector('.stats-chart');
-    if (!chartContainer) return;
-
-    // Clear existing chart
-    chartContainer.innerHTML = '';
-
-    // Create canvas for the chart
-    const canvas = document.createElement('canvas');
-    canvas.id = 'statsChart';
-    chartContainer.appendChild(canvas);
-
-    // Calculate rates
-    const totalAccesses = stats.totalAccesses || 0;
-    const hits = stats.hits || 0;
-    const hitRate = totalAccesses > 0 ? (hits / totalAccesses * 100) : 0;
-    const missRate = 100 - hitRate;
-
-    // Create the chart using Chart.js
-    const ctx = canvas.getContext('2d');
-    new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: ['Hit Rate', 'Miss Rate'],
-            datasets: [{
-                label: 'Cache Performance',
-                data: [hitRate, missRate],
-                backgroundColor: [
-                    'rgba(75, 192, 192, 0.6)',
-                    'rgba(255, 99, 132, 0.6)'
-                ],
-                borderColor: [
-                    'rgba(75, 192, 192, 1)',
-                    'rgba(255, 99, 132, 1)'
-                ],
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 100,
-                    title: {
-                        display: true,
-                        text: 'Percentage (%)'
+                const targetSet = state.sets[setIndex];
+                if(targetSet) {
+                    const wayIndex = targetSet.blocks.findIndex(b => b.valid && b.tag === tag);
+                    if (wayIndex !== -1) {
+                         blockToHighlight = { setIndex, wayIndex };
                     }
+                    // If it was a miss and load, we need info about which way was chosen
+                    // This logic needs refinement based on backend providing more context
                 }
-            },
-            plugins: {
-                title: {
-                    display: true,
-                    text: 'Cache Performance Metrics'
-                }
+
+            } catch (e) {
+                console.error("Error calculating highlight target:", e);
             }
         }
-    });
-}
 
-// Utility Functions
-function addLogEntry(result) {
-    const log = document.getElementById('access-log');
-    const entry = document.createElement('div');
-    entry.className = `log-entry ${result.hit ? 'hit' : 'miss'}`;
-    
-    entry.innerHTML = `
-        <span class="log-operation">${result.operation.toUpperCase()}</span>
-        <span class="log-address">${result.address}</span>
-        <span class="log-result">${result.hit ? 'HIT' : 'MISS'}${result.evicted ? ' (Eviction)' : ''}</span>
-    `;
-    
-    log.insertBefore(entry, log.firstChild);
-    if (log.children.length > 100) {
-        log.removeChild(log.lastChild);
-    }
-}
-
-function showError(message) {
-    console.error(message);
-    
-    try {
-        const existingError = document.querySelector('.error-message');
-        if (existingError && existingError.parentNode) {
-            existingError.parentNode.removeChild(existingError);
-        }
-
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error-message';
-        errorDiv.textContent = message;
-        
-        if (document.body) {
-            document.body.appendChild(errorDiv);
-            setTimeout(() => {
-                if (errorDiv.parentNode) {
-                    errorDiv.parentNode.removeChild(errorDiv);
-                }
-            }, 3000);
-        }
-    } catch (error) {
-        console.error('Error showing error message:', error);
-    }
-}
-
-function getCurrentCacheState() {
-    return currentCacheState;
-}
-
-// Helper function to parse size strings (e.g., "1KB", "64B")
-function parseSize(sizeStr) {
-    const value = parseInt(sizeStr);
-    if (sizeStr.includes('KB')) {
-        return value * 1024;
-    } else if (sizeStr.includes('MB')) {
-        return value * 1024 * 1024;
-    } else if (sizeStr.includes('GB')) {
-        return value * 1024 * 1024 * 1024;
-    } else {
-        return value;
-    }
-}
-
-// Function to run a sequence of addresses
-async function runAddressTrace(addresses) {
-    for (const address of addresses) {
-        await performRead(address);
-        await new Promise(resolve => setTimeout(resolve, animationSpeed));
-    }
-}
-
-function generateOperationSteps(address, isWrite, cacheConfig) {
-    const { blockSize, numSets } = cacheConfig;
-    const addressBin = parseInt(address, 16).toString(2).padStart(32, '0');
-    const offsetBits = Math.log2(blockSize);
-    const indexBits = Math.log2(numSets);
-    const tagBits = 32 - offsetBits - indexBits;
-
-    return [
-        {
-            step: 1,
-            description: 'Calculate address components',
-            details: {
-                tag: addressBin.slice(0, tagBits),
-                index: addressBin.slice(tagBits, tagBits + indexBits),
-                offset: addressBin.slice(tagBits + indexBits)
-            }
-        },
-        {
-            step: 2,
-            description: 'Check cache for matching tag',
-            details: {
-                setIndex: parseInt(addressBin.slice(tagBits, tagBits + indexBits), 2),
-                tag: parseInt(addressBin.slice(0, tagBits), 2)
-            }
-        },
-        {
-            step: 3,
-            description: 'Determine cache hit/miss',
-            details: {}  // Will be filled during execution
-        },
-        {
-            step: 4,
-            description: isWrite ? 'Write data to cache' : 'Read data from cache',
-            details: {}  // Will be filled during execution
-        }
-    ];
-}
-
-async function visualizeOperation(address, isWrite) {
-    if (isAnimating) return;
-    isAnimating = true;
-    
-    // Reset current step
-    currentStep = 0;
-    
-    // Update operation details
-    document.getElementById('current-operation').textContent = isWrite ? 'WRITE' : 'READ';
-    document.getElementById('current-address').textContent = `0x${address.toString(16).toUpperCase()}`;
-    
-    // Generate steps for this operation
-    const cacheConfig = await getCacheConfig();
-    operationSteps = generateOperationSteps(address, isWrite, cacheConfig);
-    
-    // Initialize step list
-    const stepList = document.querySelector('.step-list');
-    stepList.innerHTML = '';
-    operationSteps.forEach(step => {
-        const stepItem = document.createElement('div');
-        stepItem.className = 'step-item';
-        stepItem.innerHTML = `
-            <div class="step-number">${step.step}</div>
-            <div class="step-description">${step.description}</div>
-        `;
-        stepList.appendChild(stepItem);
-    });
-    
-    // Execute steps with animation
-    for (let i = 0; i < operationSteps.length; i++) {
-        await executeStep(i, address, isWrite);
-    }
-    
-    isAnimating = false;
-}
-
-async function executeStep(stepIndex, address, isWrite) {
-    const step = operationSteps[stepIndex];
-    currentStep = stepIndex;
-    
-    // Update progress bar
-    const progress = ((stepIndex + 1) / operationSteps.length) * 100;
-    document.querySelector('.progress-bar').style.width = `${progress}%`;
-    
-    // Highlight current step
-    document.querySelectorAll('.step-item').forEach((item, index) => {
-        item.classList.toggle('active', index === stepIndex);
-    });
-    
-    // Execute step-specific animations
-    switch (step.step) {
-        case 1:
-            // Highlight address breakdown
-            updateAddressBitsDisplay(address, await getCacheConfig());
-            await animateHighlight('#address-bits-display');
-            break;
+        state.sets.forEach((set, setIndex) => {
+            const setDiv = document.createElement('div');
+            setDiv.className = 'cache-set';
             
-        case 2:
-            // Highlight relevant cache set
-            const setIndex = step.details.setIndex;
-            await animateHighlight(`.cache-set[data-set-index="${setIndex}"]`);
-            break;
-            
-        case 3:
-            // Animate cache check result
-            const result = await checkCacheHit(address);
-            step.details.hit = result.hit;
-            document.getElementById('operation-status').textContent = 
-                result.hit ? 'Cache Hit' : 'Cache Miss';
-            await animateAccessResult(result);
-            break;
-            
-        case 4:
-            // Animate data transfer
-            await animateDataTransfer(step.details.hit, isWrite);
-            break;
-    }
-    
-    // Wait for animation
-    await new Promise(resolve => setTimeout(resolve, 1000));
-}
+            const header = document.createElement('div');
+            header.className = 'set-header';
+            header.textContent = `Set ${setIndex}`;
+            setDiv.appendChild(header);
 
-async function animateHighlight(selector) {
-    const element = document.querySelector(selector);
-    if (!element) return;
-    
-    element.classList.add('highlight-block');
-    await new Promise(resolve => setTimeout(resolve, 500));
-    element.classList.remove('highlight-block');
-}
+            const blocksDiv = document.createElement('div');
+            blocksDiv.className = 'cache-blocks';
 
-async function animateDataTransfer(isHit, isWrite) {
-    const dataPath = document.querySelector('.data-path');
-    if (!dataPath) return;
-    
-    const transfer = document.createElement('div');
-    transfer.className = 'data-transfer';
-    dataPath.appendChild(transfer);
-    
-    await new Promise(resolve => {
-        transfer.addEventListener('animationend', () => {
-            transfer.remove();
-            resolve();
-        });
-    });
-}
+            set.blocks.forEach((block, wayIndex) => {
+                const blockDiv = document.createElement('div');
+                blockDiv.className = `cache-block ${block.valid ? 'valid' : 'invalid'} ${block.dirty ? 'dirty' : ''}`;
+                blockDiv.setAttribute('title', `Way ${wayIndex}`); // Tooltip for way index
+                blockDiv.setAttribute('data-set', setIndex); // Add data attributes for targeting
+                blockDiv.setAttribute('data-way', wayIndex);
 
-async function animateAccessResult(result) {
-    const animation = document.createElement('div');
-    animation.className = `access-result ${result.hit ? 'hit' : 'miss'}`;
-    animation.textContent = result.hit ? 'HIT' : 'MISS';
-    document.body.appendChild(animation);
-    
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    animation.remove();
-}
-
-// Helper function to get cache configuration
-async function getCacheConfig() {
-    const response = await fetch('/api/state');
-    const data = await response.json();
-    return {
-        blockSize: data.state.blockSize,
-        numSets: data.state.sets.length,
-        waysPerSet: data.state.sets[0].blocks.length
-    };
-}
-
-// Helper function to check if address results in cache hit
-async function checkCacheHit(address) {
-    const response = await fetch('/api/access', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, isWrite: false })
-    });
-    const data = await response.json();
-    return {
-        hit: data.result.hit,
-        evicted: data.result.evicted !== null
-    };
-}
-
-// Cache Visualization
-function initializeCacheVisualization(config) {
-    const svg = document.getElementById('cache-diagram');
-    if (!svg) {
-        console.error('Cache diagram SVG element not found');
-        return;
-    }
-
-    try {
-        // Clear existing content
-        svg.innerHTML = '';
-        
-        // Calculate dimensions
-        const numSets = config.numSets;
-        const waysPerSet = config.waysPerSet;
-        const svgWidth = (waysPerSet * (blockSize + padding)) + (padding * 2);
-        const svgHeight = (numSets * (blockSize + padding)) + (padding * 2);
-        
-        // Set SVG attributes
-        svg.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
-        svg.setAttribute('width', '100%');
-        svg.setAttribute('height', '100%');
-        
-        // Create cache structure
-        cacheStructure = createCacheStructure(svg, numSets, waysPerSet);
-        
-        // Clean up existing pan-zoom instance
-        if (panZoomInstance) {
-            try {
-                panZoomInstance.destroy();
-            } catch (error) {
-                console.error('Error destroying previous pan-zoom instance:', error);
-            }
-        }
-        
-        // Initialize SVG Pan Zoom
-        if (window.svgPanZoom) {
-            panZoomInstance = window.svgPanZoom(svg, {
-                zoomEnabled: true,
-                controlIconsEnabled: true,
-                fit: true,
-                center: true,
-                minZoom: 0.5,
-                maxZoom: 2,
-                zoomScaleSensitivity: 0.1
+                blockDiv.innerHTML = `
+                    <span class="block-way-index">Way ${wayIndex}</span>
+                    <span class="block-status">${block.valid ? 'Valid' : 'Invalid'}${block.dirty ? ' Dirty' : ''}</span>
+                    <span class="block-tag">Tag: <span>${block.valid ? '0x' + block.tag.toString(16) : '---'}</span></span>
+                    <!-- <span class="block-data">Data: ${block.valid && block.data ? block.data : '---'}</span> -->
+                `;
+                blocksDiv.appendChild(blockDiv);
             });
-            
-            // Add resize handler
-            const resizeHandler = () => {
-                if (panZoomInstance) {
-                    panZoomInstance.resize();
-                    panZoomInstance.fit();
-                    panZoomInstance.center();
-                }
-            };
-            
-            window.removeEventListener('resize', resizeHandler);
-            window.addEventListener('resize', resizeHandler);
+            setDiv.appendChild(blocksDiv);
+            cacheVisDiv.appendChild(setDiv);
+        });
+    }
+
+    function updateStats(stats) {
+        if (!stats) {
+            statsDisplayDiv.innerHTML = '<p>Stats unavailable.</p>';
+            return;
+        }
+        statsDisplayDiv.innerHTML = `
+            <p>Accesses: <span>${stats.totalAccesses}</span></p>
+            <p>Hits: <span>${stats.hits}</span></p>
+            <p>Misses: <span>${stats.misses}</span></p>
+            <p>Evictions: <span>${stats.evictions}</span></p>
+            <p>Hit Rate: <span>${(stats.hitRate * 100).toFixed(1)}%</span></p>
+            <p>Miss Rate: <span>${(stats.missRate * 100).toFixed(1)}%</span></p>
+        `;
+    }
+    
+    // --- Trace Handling ---
+    function resetTraceState() {
+        traceAddresses = [];
+        traceIndex = 0;
+        isTraceRunning = false;
+        traceInput.value = ''; // Clear textarea
+        stepTraceBtn.disabled = true;
+        runTraceBtn.disabled = true;
+        console.log('Trace state reset');
+    }
+
+    function loadTrace() {
+        const traceText = traceInput.value.trim();
+        if (!traceText) {
+            showError('Trace input is empty.');
+            return false;
+        }
+        traceAddresses = traceText.split(',') .map(addr => addr.trim()).filter(addr => addr !== '');
+        traceIndex = 0;
+        isTraceRunning = false;
+        if (traceAddresses.length === 0) {
+             showError('No valid addresses found in trace.');
+            return false;
+        }
+        stepTraceBtn.disabled = false;
+        runTraceBtn.disabled = false;
+        showStatus(`Trace loaded with ${traceAddresses.length} addresses.`);
+        console.log('Trace loaded:', traceAddresses);
+        return true;
+    }
+
+    async function stepTrace() {
+        if (traceIndex >= traceAddresses.length) {
+            showStatus('End of trace reached.');
+            stepTraceBtn.disabled = true;
+            runTraceBtn.disabled = true;
+            isTraceRunning = false;
+            return;
+        }
+        if (!currentConfig) { // Check if cache is configured
+            showError('Cache not configured.');
+            return;
+        }
+
+        stepTraceBtn.disabled = true; // Disable while processing
+        runTraceBtn.disabled = true;
+        const address = traceAddresses[traceIndex];
+        showStatus(`Stepping trace: Accessing ${address}...`);
+        await accessCache(address); // Wait for access to complete
+        traceIndex++;
+        
+        if (traceIndex < traceAddresses.length) {
+             stepTraceBtn.disabled = false; // Re-enable if not at end
+             runTraceBtn.disabled = false;
         } else {
-            console.warn('SVG Pan Zoom library not loaded');
+             showStatus('End of trace reached.');
         }
-    } catch (error) {
-        console.error('Error initializing cache visualization:', error);
-        showError('Failed to initialize visualization');
     }
-}
 
-function createCacheStructure(svg, numSets, waysPerSet) {
-    const structure = [];
-    
-    for (let setIndex = 0; setIndex < numSets; setIndex++) {
-        const setGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        setGroup.classList.add('cache-set-group');
-        setGroup.setAttribute('transform', `translate(${padding}, ${setIndex * (blockSize + padding) + padding})`);
-        
-        const blocks = [];
-        for (let wayIndex = 0; wayIndex < waysPerSet; wayIndex++) {
-            const block = createCacheBlock(wayIndex * (blockSize + padding), 0, setIndex, wayIndex);
-            blocks.push(block);
-            setGroup.appendChild(block.group);
+    async function runTrace() {
+        if (!loadTrace()) return; // Load/reload trace first
+        if (!currentConfig) {
+            showError('Cache not configured.');
+            return;
+        }
+
+        isTraceRunning = true;
+        stepTraceBtn.disabled = true;
+        runTraceBtn.disabled = true;
+        showStatus('Running trace...');
+
+        while (isTraceRunning && traceIndex < traceAddresses.length) {
+            const address = traceAddresses[traceIndex];
+            showStatus(`Running trace: Accessing ${address} (${traceIndex + 1}/${traceAddresses.length})`);
+            await accessCache(address); // Wait for access
+            traceIndex++;
+            await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for visualization
         }
         
-        svg.appendChild(setGroup);
-        structure.push({ setGroup, blocks });
+        isTraceRunning = false;
+        if (traceIndex >= traceAddresses.length) {
+            showStatus('Trace completed.');
+        } else {
+            showStatus('Trace stopped.'); // If stopped manually (not implemented yet)
+            stepTraceBtn.disabled = false; // Re-enable step if stopped mid-trace
+            runTraceBtn.disabled = false;
+        }
     }
-    
-    return structure;
-}
 
-function createCacheBlock(x, y, setIndex, wayIndex) {
-    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    group.classList.add('cache-block-group');
-    group.setAttribute('transform', `translate(${x}, ${y})`);
-    
-    // Create block rectangle
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.classList.add('cache-block-rect');
-    rect.setAttribute('width', blockSize);
-    rect.setAttribute('height', blockSize);
-    rect.setAttribute('rx', '4');
-    
-    // Create text elements
-    const texts = {
-        tag: createText('', 10, 20),
-        valid: createText('', 10, 35),
-        data: createText('', 10, 50)
-    };
-    
-    // Add hover effects
-    group.addEventListener('mouseenter', () => showBlockTooltip(setIndex, wayIndex));
-    group.addEventListener('mouseleave', hideBlockTooltip);
-    
-    // Append elements
-    group.appendChild(rect);
-    Object.values(texts).forEach(text => group.appendChild(text));
-    
-    return { group, rect, texts };
-}
+    // --- Event Listeners ---
+    configForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        console.log('Configure button clicked');
+        configureCache();
+    });
 
-function createText(content, x, y) {
-    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    text.classList.add('cache-block-text');
-    text.setAttribute('x', x);
-    text.setAttribute('y', y);
-    text.textContent = content;
-    return text;
-}
+    resetBtn.addEventListener('click', () => {
+        console.log('Reset button clicked');
+        resetCache();
+    });
 
-function showBlockTooltip(setIndex, wayIndex) {
-    const tooltip = document.getElementById('cache-tooltip');
-    if (!tooltip || !cacheStructure) return;
-    
-    const block = cacheStructure[setIndex]?.blocks[wayIndex];
-    if (!block) return;
-    
-    const rect = block.rect.getBoundingClientRect();
-    const container = document.querySelector('.visualization-container');
-    const containerRect = container.getBoundingClientRect();
-    
-    tooltip.style.display = 'block';
-    tooltip.style.left = `${rect.left - containerRect.left + rect.width}px`;
-    tooltip.style.top = `${rect.top - containerRect.top}px`;
-    
-    // Update tooltip content
-    tooltip.querySelector('.tooltip-header').textContent = `Set ${setIndex}, Way ${wayIndex}`;
-    tooltip.querySelector('.tooltip-content').innerHTML = `
-        <div>Tag: ${block.texts.tag.textContent}</div>
-        <div>Status: ${block.texts.valid.textContent}</div>
-        <div>Data: ${block.texts.data.textContent}</div>
-    `;
-}
+    accessBtn.addEventListener('click', () => {
+        const address = addressInput.value;
+        console.log('Access button clicked with address:', address);
+        if (address) {
+            accessCache(address);
+        } else {
+            showError('Please enter an address.');
+        }
+    });
 
-function hideBlockTooltip() {
-    const tooltip = document.getElementById('cache-tooltip');
-    if (tooltip) tooltip.style.display = 'none';
-} 
+    addressInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            accessBtn.click(); // Trigger access on Enter key
+        }
+        resetVisualizationAndStats();
+        resetTraceState(); // Ensure trace controls are disabled initially
+        breakdownPanel.style.display = 'none'; // Hide breakdown initially
+    });
+
+    stepTraceBtn.addEventListener('click', () => {
+        console.log('Step Trace button clicked');
+        stepTrace();
+    });
+
+    runTraceBtn.addEventListener('click', () => {
+        console.log('Run Trace button clicked');
+        runTrace();
+    });
+
+    resetTraceBtn.addEventListener('click', () => {
+        console.log('Reset Trace button clicked');
+        resetTraceState();
+        showStatus('Trace reset.');
+    });
+
+    traceInput.addEventListener('input', () => {
+        // Enable Run/Step buttons as soon as there's text
+        const hasText = traceInput.value.trim().length > 0;
+        runTraceBtn.disabled = !hasText;
+        stepTraceBtn.disabled = !hasText;
+        if (!hasText) {
+            traceAddresses = [];
+            traceIndex = 0;
+        }
+    });
+
+    // --- Address Breakdown Logic ---
+    function updateAddressBreakdown(addressStr) {
+        if (!currentConfig || !addressStr) {
+            breakdownDisplayDiv.innerHTML = '<p>Enter an address and configure the cache.</p>';
+            breakdownPanel.style.display = 'none';
+            return;
+        }
+
+        const addrInt = parseAddressInput(addressStr);
+        if (addrInt === null) {
+             breakdownDisplayDiv.innerHTML = '<p>Invalid address format.</p>';
+             breakdownPanel.style.display = 'block'; // Show panel even with error
+             return;
+        }
+
+        try {
+            const { blockSize, numSets } = currentConfig;
+            if (!blockSize || !numSets) {
+                 throw new Error('Invalid cache configuration for breakdown.');
+            }
+            
+            // Calculate bits (ensure block size and num sets are powers of 2)
+            // Basic log2, requires power-of-2 sizes
+            const offsetBits = Math.log2(blockSize);
+            const indexBits = numSets > 1 ? Math.log2(numSets) : 0;
+            
+            if (!Number.isInteger(offsetBits) || !Number.isInteger(indexBits)) {
+                 throw new Error('Block size and number of sets must be powers of 2 for accurate bit breakdown.');
+            }
+
+            const totalBits = 32; // Assuming 32-bit addresses for visualization
+            const tagBits = totalBits - indexBits - offsetBits;
+
+            if (tagBits < 0) {
+                throw new Error('Invalid configuration: Too many index/offset bits.');
+            }
+
+            // Extract parts
+            const offsetMask = (1 << offsetBits) - 1;
+            const indexMask = numSets > 1 ? ((1 << indexBits) - 1) << offsetBits : 0;
+            const tagMask = (~(indexMask | offsetMask)) >>> 0; // Use unsigned shift for correct mask
+
+            const offset = addrInt & offsetMask;
+            const index = numSets > 1 ? (addrInt & indexMask) >> offsetBits : 0;
+            const tag = (addrInt & tagMask) >>> (indexBits + offsetBits); // Use unsigned shift
+
+            // Display
+            breakdownDisplayDiv.innerHTML = `
+                <div class="breakdown-row">
+                    <span class="breakdown-label">Address (Hex):</span>
+                    <span class="breakdown-value">0x${addrInt.toString(16)}</span>
+                </div>
+                <div class="breakdown-row">
+                    <span class="breakdown-label">Address (Dec):</span>
+                    <span class="breakdown-value">${addrInt}</span>
+                </div>
+                <hr>
+                <div class="breakdown-row">
+                    <span class="breakdown-label">Tag:</span>
+                    <span class="breakdown-value">0x${tag.toString(16)} <span class="breakdown-bits">(${tagBits} bits)</span></span>
+                </div>
+                <div class="breakdown-row">
+                    <span class="breakdown-label">Index:</span>
+                    <span class="breakdown-value">${index} <span class="breakdown-bits">(${indexBits} bits)</span></span>
+                </div>
+                <div class="breakdown-row">
+                    <span class="breakdown-label">Offset:</span>
+                    <span class="breakdown-value">0x${offset.toString(16)} <span class="breakdown-bits">(${offsetBits} bits)</span></span>
+                </div>
+            `;
+            breakdownPanel.style.display = 'block';
+
+        } catch (error) {
+            console.error("Breakdown Error:", error);
+            breakdownDisplayDiv.innerHTML = `<p>Error calculating breakdown: ${error.message}</p>`;
+            breakdownPanel.style.display = 'block';
+        }
+    }
+
+    // Function to highlight the specific block accessed
+    function highlightBlock(setIndex, wayIndex) {
+        // Remove previous highlights
+        document.querySelectorAll('.block-highlight').forEach(el => el.classList.remove('block-highlight'));
+
+        // Add highlight to the target block
+        const targetBlock = cacheVisDiv.querySelector(`.cache-block[data-set="${setIndex}"][data-way="${wayIndex}"]`);
+        if (targetBlock) {
+            targetBlock.classList.add('block-highlight');
+            // Remove the class after animation duration (optional, CSS handles removal via animation end state)
+            // setTimeout(() => {
+            //     targetBlock.classList.remove('block-highlight');
+            // }, 800); // Match CSS animation duration
+        }
+    }
+
+    // Initial state
+    resetVisualizationAndStats();
+    resetTraceState(); // Ensure trace controls are disabled initially
+}); 

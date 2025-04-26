@@ -1,13 +1,32 @@
 """
 Web interface for cache simulator.
 """
+import logging
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from cache_simulator import Cache, parse_size
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Initialize Flask app
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+app.wsgi_app = ProxyFix(app.wsgi_app)  # Handle proxy headers
+
+# Configure CORS
+CORS(app, resources={
+    r"/api/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"]
+    }
+})
 
 # Global cache instance (will be initialized with configuration)
 cache_instance = None
@@ -16,7 +35,14 @@ cache_instance = None
 @app.route('/')
 def index():
     """Render the main page."""
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        logger.error("Error rendering index page: %s", str(e))
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error'
+        }), 500
 
 
 @app.route('/api/configure', methods=['POST'])
@@ -32,11 +58,14 @@ def configure_cache():
                 'error': 'No configuration data provided'
             }), 400
 
+        logger.info("Configuring cache with parameters: %s", data)
+
         # Parse cache parameters
         try:
             total_size = parse_size(data['size'])
             block_size = parse_size(data['blockSize'])
         except (KeyError, ValueError) as e:
+            logger.warning("Invalid size format: %s", str(e))
             return jsonify({
                 'success': False,
                 'error': f'Invalid size format: {str(e)}'
@@ -50,6 +79,7 @@ def configure_cache():
             else:
                 associativity = int(assoc)
         except (KeyError, ValueError):
+            logger.warning("Invalid associativity value: %s", data.get('associativity'))
             return jsonify({
                 'success': False,
                 'error': 'Invalid associativity value'
@@ -57,6 +87,7 @@ def configure_cache():
 
         # Validate policy
         if 'policy' not in data or data['policy'] not in ['LRU', 'FIFO']:
+            logger.warning("Invalid replacement policy: %s", data.get('policy'))
             return jsonify({
                 'success': False,
                 'error': 'Invalid replacement policy'
@@ -70,7 +101,9 @@ def configure_cache():
                 associativity=associativity,
                 policy_type=data['policy']
             )
+            logger.info("Cache configured successfully")
         except ValueError as e:
+            logger.error("Error creating cache instance: %s", str(e))
             return jsonify({
                 'success': False,
                 'error': str(e)
@@ -86,9 +119,10 @@ def configure_cache():
         })
         
     except Exception as e:
+        logger.error("Unexpected error in configure_cache: %s", str(e))
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': 'Internal server error'
         }), 500
 
 
@@ -98,6 +132,7 @@ def access_cache():
     global cache_instance
     
     if cache_instance is None:
+        logger.warning("Attempted to access unconfigured cache")
         return jsonify({
             'success': False,
             'error': 'Cache not configured'
@@ -114,28 +149,45 @@ def access_cache():
         try:
             address = int(data['address'])
             is_write = data.get('isWrite', False)
+            logger.info("Processing %s access at address %d", 
+                       "write" if is_write else "read", address)
         except (KeyError, ValueError):
+            logger.warning("Invalid address format: %s", data.get('address'))
             return jsonify({
                 'success': False,
                 'error': 'Invalid address format'
             }), 400
         
         # Perform cache access
-        hit, evicted = cache_instance.access(address, is_write)
+        hit, evicted_block = cache_instance.access(address, is_write)
         
         # Get updated cache state
         contents = cache_instance.get_contents()
         
+        logger.info("Access result: %s, eviction: %s", 
+                   "hit" if hit else "miss",
+                   "yes" if evicted_block else "no")
+        
+        # Prepare evicted block info for JSON response (avoid bytearray)
+        evicted_info = None
+        if evicted_block:
+            evicted_info = {
+                'tag': evicted_block.tag,
+                'dirty': evicted_block.dirty
+                # We don't include 'data' as it's bytearray
+            }
+            
         return jsonify({
             'success': True,
             'result': {
                 'hit': hit,
-                'evicted': evicted,
+                'evicted': evicted_info, # Send serializable info
                 'state': contents
             }
         })
         
     except Exception as e:
+        logger.error("Error processing cache access: %s", str(e))
         return jsonify({
             'success': False,
             'error': str(e)
@@ -148,6 +200,7 @@ def get_state():
     global cache_instance
     
     if cache_instance is None:
+        logger.warning("Attempted to get state of unconfigured cache")
         return jsonify({
             'success': False,
             'error': 'Cache not configured'
@@ -159,6 +212,7 @@ def get_state():
             'state': cache_instance.get_contents()
         })
     except Exception as e:
+        logger.error("Error getting cache state: %s", str(e))
         return jsonify({
             'success': False,
             'error': str(e)
@@ -171,6 +225,7 @@ def get_stats():
     global cache_instance
     
     if cache_instance is None:
+        logger.warning("Attempted to get stats of unconfigured cache")
         return jsonify({
             'success': False,
             'error': 'Cache not configured'
@@ -190,6 +245,7 @@ def get_stats():
             }
         })
     except Exception as e:
+        logger.error("Error getting cache stats: %s", str(e))
         return jsonify({
             'success': False,
             'error': str(e)
@@ -200,9 +256,10 @@ def get_stats():
 def reset_cache():
     """Reset the cache (clear configuration)."""
     global cache_instance
+    logger.info("Resetting cache configuration")
     cache_instance = None
     return jsonify({'success': True})
 
 
 if __name__ == '__main__':
-    app.run(debug=True) 
+    app.run(debug=True, host='0.0.0.0', port=5000) 
